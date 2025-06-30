@@ -1,31 +1,33 @@
-# 生产环境使用指南
+# Production Environment Guide
 
-本指南将帮助您在生产环境中正确部署和管理Device Owner应用。
+This guide will help you properly deploy and manage Device Owner applications in production environments.
 
-## 设备准备
+**English** | [**中文**](production-guide-zh.md)
 
-### 1. 批量设备准备
+## Device Preparation
 
-对于生产环境中的大量设备，推荐以下方法：
+### 1. Bulk Device Preparation
 
-#### 方法A：使用MDM解决方案
+For large numbers of devices in production environments, the following methods are recommended:
 
-- **Google Workspace** (推荐用于企业)
+#### Method A: Using MDM Solutions
+
+- **Google Workspace** (recommended for enterprises)
 - **Microsoft Intune**
 - **VMware Workspace ONE**
 - **Samsung Knox**
 
-#### 方法B：零接触部署 (Zero-Touch Enrollment)
+#### Method B: Zero-Touch Enrollment
 
-- 适用于大规模部署
-- 设备开机自动配置
-- 无需手动干预
+- Suitable for large-scale deployments
+- Devices configure automatically on first boot
+- No manual intervention required
 
-#### 方法C：ADB批量脚本
+#### Method C: ADB Bulk Scripts
 
 ```bash
 #!/bin/bash
-# 批量设置脚本示例
+# Bulk setup script example
 PACKAGE_NAME="com.yourcompany.kioskapp"
 
 for device in $(adb devices | grep -v "List" | awk '{print $1}'); do
@@ -34,21 +36,21 @@ for device in $(adb devices | grep -v "List" | awk '{print $1}'); do
 done
 ```
 
-### 2. 设备配置清单
+### 2. Device Configuration Checklist
 
-✅ **设备准备检查**
+✅ **Device Preparation Checklist**
 
-- [ ] 设备已恢复出厂设置
-- [ ] 跳过设置向导（不添加Google账户）
-- [ ] 启用开发者选项和USB调试（如使用ADB）
-- [ ] 应用已安装
-- [ ] 网络连接正常
+- [ ] Device has been factory reset
+- [ ] Skip setup wizard (don't add Google account)
+- [ ] Enable developer options and USB debugging (if using ADB)
+- [ ] Application is installed
+- [ ] Network connection is working
 
-## 应用部署
+## Application Deployment
 
-### 1. 应用签名
+### 1. Application Signing
 
-确保您的生产应用使用正确的签名：
+Ensure your production application uses the correct signature:
 
 ```gradle
 // android/app/build.gradle
@@ -71,17 +73,21 @@ android {
 }
 ```
 
-### 2. 权限配置
+### 2. Permission Configuration
 
-确保AndroidManifest.xml包含必要权限：
+Ensure AndroidManifest.xml contains the necessary permissions:
 
 ```xml
-<uses-permission android:name="android.permission.BIND_DEVICE_ADMIN" />
-<uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+<!-- Required permissions for Kiosk Manager -->
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+<uses-permission android:name="android.permission.allowlist_lockTaskPackages" />
 
+<!-- Device Admin configuration -->
 <receiver
-    android:name=".DeviceAdminReceiver"
-    android:permission="android.permission.BIND_DEVICE_ADMIN">
+    android:name="com.riuhou.kioskmanager.DeviceAdminReceiver"
+    android:permission="android.permission.BIND_DEVICE_ADMIN"
+    android:exported="true">
     <meta-data
         android:name="android.app.device_admin"
         android:resource="@xml/device_admin_receiver" />
@@ -91,9 +97,9 @@ android {
 </receiver>
 ```
 
-## 生产环境最佳实践
+## Production Environment Best Practices
 
-### 1. 错误处理和监控
+### 1. Error Handling and Monitoring
 
 ```typescript
 import KioskManager from 'react-native-kiosk-manager';
@@ -101,20 +107,17 @@ import KioskManager from 'react-native-kiosk-manager';
 class KioskController {
   async initializeKiosk() {
     try {
-      // 检查Device Owner状态
+      // Check Device Owner status
       const isOwner = await KioskManager.isDeviceOwner();
       if (!isOwner) {
         this.handleDeviceOwnerError();
         return;
       }
 
-      // 设置锁定任务包
-      await KioskManager.setupLockTaskPackage();
-
-      // 启动Kiosk模式
+      // Start Kiosk mode
       KioskManager.startKiosk();
 
-      // 记录成功日志
+      // Log success
       this.logEvent('kiosk_started', { success: true });
     } catch (error) {
       this.logError('kiosk_initialization_failed', error);
@@ -123,40 +126,40 @@ class KioskController {
   }
 
   private handleDeviceOwnerError() {
-    // 显示用户友好的错误消息
-    // 可能需要引导用户重新设置Device Owner
+    // Display user-friendly error message
+    // May need to guide user to reset Device Owner
     console.error('Device Owner not set. Please contact administrator.');
   }
 
   private handleKioskError(error: any) {
-    // 实现错误恢复策略
-    // 例如：重试、回退到非Kiosk模式等
+    // Implement error recovery strategy
+    // E.g.: retry, fallback to non-kiosk mode, etc.
   }
 
   private logEvent(event: string, data: any) {
-    // 发送到分析服务（如Firebase Analytics）
+    // Send to analytics service (e.g., Firebase Analytics)
   }
 
   private logError(error: string, details: any) {
-    // 发送到错误监控服务（如Crashlytics）
+    // Send to error monitoring service (e.g., Crashlytics)
   }
 }
 ```
 
-### 2. 远程管理
+### 2. Remote Management
 
-实现远程管理功能：
+Implement remote management functionality:
 
 ```typescript
 class RemoteManagement {
   async checkForUpdates() {
-    // 检查应用更新
-    // 可以通过自己的服务器或Firebase Remote Config
+    // Check for application updates
+    // Can use your own server or Firebase Remote Config
   }
 
   async receiveRemoteCommands() {
-    // 接收远程命令（如退出Kiosk模式、重启等）
-    // 可以使用Firebase Cloud Functions或WebSocket
+    // Receive remote commands (e.g., exit kiosk mode, restart, etc.)
+    // Can use Firebase Cloud Functions or WebSocket
   }
 
   async reportDeviceStatus() {
@@ -167,59 +170,59 @@ class RemoteManagement {
       lastHeartbeat: new Date().toISOString(),
     };
 
-    // 发送到管理服务器
+    // Send to management server
     await this.sendStatusToServer(status);
   }
 }
 ```
 
-### 3. 安全考虑
+### 3. Security Considerations
 
 ```typescript
 class SecurityManager {
   async validateDeviceIntegrity() {
-    // 检查设备是否被篡改
-    // 验证应用签名
-    // 检查root状态
+    // Check if device has been tampered with
+    // Verify application signature
+    // Check root status
   }
 
   async setupSecurityPolicies() {
-    // 禁用不必要的系统功能
-    // 限制用户操作
-    // 设置密码策略（如果需要）
+    // Disable unnecessary system features
+    // Restrict user operations
+    // Set password policies (if needed)
   }
 
   async handleSecurityBreach() {
-    // 安全事件响应
-    // 可能包括：远程锁定、数据清除等
+    // Security incident response
+    // May include: remote lock, data wipe, etc.
   }
 }
 ```
 
-## 故障排除
+## Troubleshooting
 
-### 常见生产问题
+### Common Production Issues
 
-1. **Device Owner权限丢失**
+1. **Device Owner permissions lost**
 
    ```typescript
-   // 定期检查Device Owner状态
+   // Periodically check Device Owner status
    setInterval(async () => {
      const isOwner = await KioskManager.isDeviceOwner();
      if (!isOwner) {
-       // 处理权限丢失情况
+       // Handle permission loss
        this.handleDeviceOwnerLoss();
      }
-   }, 30000); // 每30秒检查一次
+   }, 30000); // Check every 30 seconds
    ```
 
-2. **Kiosk模式意外退出**
+2. **Kiosk mode unexpectedly exits**
 
    ```typescript
-   // 应用生命周期监控
+   // Application lifecycle monitoring
    AppState.addEventListener('change', (nextAppState) => {
      if (nextAppState !== 'active') {
-       // 尝试重新启动Kiosk模式
+       // Try to restart kiosk mode
        setTimeout(() => {
          KioskManager.startKiosk();
        }, 1000);
@@ -227,34 +230,34 @@ class SecurityManager {
    });
    ```
 
-3. **设备性能问题**
+3. **Device performance issues**
 
    ```typescript
-   // 内存监控和清理
+   // Memory monitoring and cleanup
    const performanceMonitor = {
      checkMemoryUsage() {
-       // 检查内存使用情况
-       // 必要时重启应用
+       // Check memory usage
+       // Restart app if necessary
      },
 
      optimizePerformance() {
-       // 清理缓存
-       // 优化资源使用
+       // Clear cache
+       // Optimize resource usage
      },
    };
    ```
 
-## 监控和分析
+## Monitoring and Analytics
 
-### 1. 关键指标
+### 1. Key Metrics
 
-- Kiosk模式正常运行时间
-- Device Owner状态稳定性
-- 应用崩溃率
-- 设备健康状况
-- 用户交互数据
+- Kiosk mode uptime
+- Device Owner status stability
+- Application crash rate
+- Device health status
+- User interaction data
 
-### 2. 日志记录
+### 2. Logging
 
 ```typescript
 class Logger {
@@ -267,45 +270,45 @@ class Logger {
       appVersion: this.getAppVersion(),
     };
 
-    // 本地存储
+    // Store locally
     this.storeLocally(logEntry);
 
-    // 发送到服务器
+    // Send to server
     this.sendToServer(logEntry);
   }
 }
 ```
 
-## 维护计划
+## Maintenance Schedule
 
-### 定期任务
+### Regular Tasks
 
-1. **每日**
-   - 检查设备在线状态
-   - 验证Kiosk模式运行状态
-   - 收集性能数据
+1. **Daily**
+   - Check device online status
+   - Verify kiosk mode operation
+   - Collect performance data
 
-2. **每周**
-   - 分析错误日志
-   - 检查设备健康状况
-   - 更新配置（如需要）
+2. **Weekly**
+   - Analyze error logs
+   - Check device health
+   - Update configurations (if needed)
 
-3. **每月**
-   - 应用更新部署
-   - 安全策略审查
-   - 性能优化
+3. **Monthly**
+   - Deploy application updates
+   - Review security policies
+   - Performance optimization
 
-4. **按需**
-   - 紧急更新推送
-   - 安全补丁部署
-   - 配置变更
+4. **As Needed**
+   - Emergency update deployment
+   - Security patch deployment
+   - Configuration changes
 
-## 联系支持
+## Support Contact
 
-如果遇到生产环境问题，请提供以下信息：
+If you encounter production environment issues, please provide the following information:
 
-- 设备型号和Android版本
-- 应用版本
-- 错误日志
-- 复现步骤
-- 设备数量和部署规模
+- Device model and Android version
+- Application version
+- Error logs
+- Reproduction steps
+- Number of devices and deployment scale
