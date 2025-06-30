@@ -12,6 +12,9 @@ import KioskManager from 'react-native-kiosk-manager';
 export default function App() {
   const [bootAutoStart, setBootAutoStart] = useState<boolean | null>(null);
   const [isDeviceOwner, setIsDeviceOwner] = useState<boolean | null>(null);
+  const [isLockTaskPackageSetup, setIsLockTaskPackageSetup] = useState<
+    boolean | null
+  >(null);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
 
@@ -40,6 +43,20 @@ export default function App() {
       Alert.alert('Success', 'Device admin requested');
     } catch (error) {
       Alert.alert('Error', 'Failed to request device admin');
+    }
+  };
+
+  const handleSetupLockTaskPackage = async () => {
+    try {
+      await KioskManager.setupLockTaskPackage();
+      Alert.alert('Success', 'Lock task package setup completed');
+      setIsLockTaskPackageSetup(true);
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        'Failed to setup lock task package. Make sure the app is device owner.'
+      );
+      setIsLockTaskPackageSetup(false);
     }
   };
 
@@ -80,6 +97,7 @@ export default function App() {
                 await KioskManager.clearDeviceOwner();
                 Alert.alert('Success', 'Device owner cleared successfully');
                 setIsDeviceOwner(false);
+                setIsLockTaskPackageSetup(false);
               } catch (error) {
                 Alert.alert('Error', 'Failed to clear device owner');
               }
@@ -127,6 +145,13 @@ export default function App() {
       <View style={styles.spacer} />
 
       <Button
+        title="Setup Lock Task Package"
+        onPress={handleSetupLockTaskPackage}
+        color="#4CAF50"
+      />
+      <View style={styles.spacer} />
+
+      <Button
         title="Clear Device Owner"
         onPress={handleClearDeviceOwner}
         color="#ff6b6b"
@@ -158,6 +183,17 @@ export default function App() {
           ]}
         >
           Device Owner: {isDeviceOwner ? 'Active' : 'Inactive'}
+        </Text>
+      )}
+
+      {isLockTaskPackageSetup !== null && (
+        <Text
+          style={[
+            styles.statusText,
+            isDarkMode ? styles.darkText : styles.lightText,
+          ]}
+        >
+          Lock Task Package: {isLockTaskPackageSetup ? 'Setup' : 'Not Setup'}
         </Text>
       )}
     </View>
