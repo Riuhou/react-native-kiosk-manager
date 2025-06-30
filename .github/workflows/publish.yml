@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Publish
 
 on:
   push:
@@ -11,33 +11,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Setup Node.js with npm registry
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Setup dependencies
-        uses: ./.github/actions/setup
+      - name: Install dependencies
+        run: yarn install --immutable
 
       - name: Extract version from tag
         id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Publishing version: $VERSION"
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Update package.json version
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          npm version $VERSION --no-git-tag-version
-          echo "Updated package.json to version $VERSION"
-
-      - name: Run tests
-        run: yarn test
+        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
 
       - name: Build package
         run: yarn prepack
@@ -50,25 +39,17 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Release ${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
           body: |
-            🚀 New release ${{ steps.version.outputs.version }}
-
-            **What's Changed:**
-            - Automatically published to npm
-            - Built and tested successfully
+            🚀 Released v${{ steps.version.outputs.version }}
 
             **Installation:**
             ```bash
             npm install react-native-kiosk-manager@${{ steps.version.outputs.version }}
-            # or
-            yarn add react-native-kiosk-manager@${{ steps.version.outputs.version }}
             ```
 
             **Links:**
             - 📦 [npm package](https://www.npmjs.com/package/react-native-kiosk-manager)
             - 📖 [Documentation](https://github.com/Riuhou/react-native-kiosk-manager#readme)
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
