@@ -1,0 +1,74 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js with npm registry
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+
+      - name: Update package.json version
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          npm version $VERSION --no-git-tag-version
+          echo "Updated package.json to version $VERSION"
+
+      - name: Run tests
+        run: yarn test
+
+      - name: Build package
+        run: yarn prepack
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            🚀 New release ${{ steps.version.outputs.version }}
+
+            **What's Changed:**
+            - Automatically published to npm
+            - Built and tested successfully
+
+            **Installation:**
+            ```bash
+            npm install react-native-kiosk-manager@${{ steps.version.outputs.version }}
+            # or
+            yarn add react-native-kiosk-manager@${{ steps.version.outputs.version }}
+            ```
+
+            **Links:**
+            - 📦 [npm package](https://www.npmjs.com/package/react-native-kiosk-manager)
+            - 📖 [Documentation](https://github.com/Riuhou/react-native-kiosk-manager#readme)
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
