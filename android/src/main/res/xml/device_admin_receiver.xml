@@ -1,0 +1,7 @@
+<!-- res/xml/device_admin_receiver.xml -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-policies>
+    <force-lock />
+    <lock-task />
+  </uses-policies>
+</device-admin>
