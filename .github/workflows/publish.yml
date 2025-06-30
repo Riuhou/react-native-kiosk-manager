@@ -1,55 +1,67 @@
-name: Publish
+# 现在主要使用 release-it 进行本地发布，这个 workflow 作为备份保留
+# name: Publish
 
-on:
-  push:
-    tags:
-      - 'v*'
+# on:
+#   push:
+#     tags:
+#       - 'v*'
 
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+# jobs:
+#   publish:
+#     runs-on: ubuntu-latest
+#     permissions:
+#       contents: write
+#       id-token: write
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          registry-url: 'https://registry.npmjs.org'
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version-file: .nvmrc
+#           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install dependencies
-        run: yarn install --immutable
+#       - name: Install dependencies
+#         run: yarn install --immutable
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+#       - name: Extract version from tag
+#         id: version
+#         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Update package.json version
-        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+#       - name: Check and update package.json version
+#         run: |
+#           CURRENT_VERSION=$(node -p "require('./package.json').version")
+#           TARGET_VERSION="${{ steps.version.outputs.version }}"
+#           if [ "$CURRENT_VERSION" != "$TARGET_VERSION" ]; then
+#             npm version $TARGET_VERSION --no-git-tag-version
+#             echo "Version updated from $CURRENT_VERSION to $TARGET_VERSION"
+#           else
+#             echo "Version already set to $TARGET_VERSION, skipping update"
+#           fi
 
-      - name: Build package
-        run: yarn prepack
+#       - name: Build package
+#         run: yarn prepack
 
-      - name: Publish to npm
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+#       - name: Publish to npm
+#         run: npm publish
+#         env:
+#           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: v${{ steps.version.outputs.version }}
-          body: |
-            🚀 Released v${{ steps.version.outputs.version }}
+#       - name: Create GitHub Release
+#         uses: softprops/action-gh-release@v1
+#         with:
+#           name: v${{ steps.version.outputs.version }}
+#           body: |
+#             🚀 Released v${{ steps.version.outputs.version }}
 
-            **Installation:**
-            ```bash
-            npm install react-native-kiosk-manager@${{ steps.version.outputs.version }}
-            ```
+#             **Installation:**
+#             ```bash
+#             npm install react-native-kiosk-manager@${{ steps.version.outputs.version }}
+#             ```
 
-            **Links:**
-            - 📦 [npm package](https://www.npmjs.com/package/react-native-kiosk-manager)
-            - 📖 [Documentation](https://github.com/Riuhou/react-native-kiosk-manager#readme)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#             **Links:**
+#             - 📦 [npm package](https://www.npmjs.com/package/react-native-kiosk-manager)
+#             - 📖 [Documentation](https://github.com/Riuhou/react-native-kiosk-manager#readme)
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

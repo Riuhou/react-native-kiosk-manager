@@ -1,6 +1,6 @@
 {
   "name": "react-native-kiosk-manager",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "description": "A React Native module for Android Kiosk mode, auto start on boot, and lock task management.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -37,6 +37,10 @@
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "prepack": "bob build",
     "release": "release-it",
+    "release:patch": "release-it patch",
+    "release:minor": "release-it minor",
+    "release:major": "release-it major",
+    "release:dry": "release-it --dry-run",
     "example": "yarn --cwd example",
     "bootstrap": "yarn example && yarn install && yarn example pods",
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build",
@@ -118,20 +122,31 @@
   "release-it": {
     "git": {
       "commitMessage": "chore: release ${version}",
-      "tagName": "v${version}"
+      "tagName": "v${version}",
+      "requireCleanWorkingDir": false
     },
     "npm": {
       "publish": true
     },
     "github": {
-      "release": true
+      "release": true,
+      "releaseName": "v${version}",
+      "releaseNotes": "🚀 Released v${version}\n\n**Installation:**\n```bash\nnpm install react-native-kiosk-manager@${version}\n```\n\n**Links:**\n- 📦 [npm package](https://www.npmjs.com/package/react-native-kiosk-manager)\n- 📖 [Documentation](https://github.com/Riuhou/react-native-kiosk-manager#readme)"
     },
     "plugins": {
       "@release-it/conventional-changelog": {
         "preset": {
           "name": "angular"
-        }
+        },
+        "infile": "CHANGELOG.md"
       }
+    },
+    "hooks": {
+      "before:init": [
+        "yarn test",
+        "yarn typecheck"
+      ],
+      "after:bump": "yarn prepack"
     }
   },
   "prettier": {
