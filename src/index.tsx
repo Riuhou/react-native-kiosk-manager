@@ -1,14 +1,11 @@
-import KioskManagerTurboModule from './NativeKioskManager';
+import { Platform } from 'react-native';
+import type { KioskManagerType } from './KioskManager.type';
 
-export default {
-  startKiosk: () => KioskManagerTurboModule?.startKiosk(),
-  stopKiosk: () => KioskManagerTurboModule?.stopKiosk(),
-  enableBootAutoStart: (enabled: boolean) =>
-    KioskManagerTurboModule?.enableBootAutoStart(enabled),
-  isBootAutoStartEnabled: () =>
-    KioskManagerTurboModule?.isBootAutoStartEnabled(),
-  setupLockTaskPackage: () => KioskManagerTurboModule?.setupLockTaskPackage(),
-  requestDeviceAdmin: () => KioskManagerTurboModule?.requestDeviceAdmin(),
-  clearDeviceOwner: () => KioskManagerTurboModule?.clearDeviceOwner(),
-  isDeviceOwner: () => KioskManagerTurboModule?.isDeviceOwner(),
-};
+let KioskManager: KioskManagerType;
+if (Platform.OS === 'android') {
+  KioskManager = require('./index.android').default;
+} else {
+  KioskManager = require('./index.ios').default;
+}
+
+export default KioskManager;
