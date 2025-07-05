@@ -1,5 +1,20 @@
 # Changelog
 
+## <small>0.5.9 (2025-07-05)</small>
+
+* feat: update ([e748d52](https://github.com/Riuhou/react-native-kiosk-manager/commit/e748d52))
+* feat: update ([12bf6eb](https://github.com/Riuhou/react-native-kiosk-manager/commit/12bf6eb))
+
+## <small>0.5.8 (2025-07-05)</small>
+
+* feat: update ([e748d52](https://github.com/Riuhou/react-native-kiosk-manager/commit/e748d52))
+* feat: update ([12bf6eb](https://github.com/Riuhou/react-native-kiosk-manager/commit/12bf6eb))
+
+## <small>0.5.7 (2025-07-05)</small>
+
+* feat: update ([e748d52](https://github.com/Riuhou/react-native-kiosk-manager/commit/e748d52))
+* feat: update ([12bf6eb](https://github.com/Riuhou/react-native-kiosk-manager/commit/12bf6eb))
+
 ## <small>0.5.6 (2025-07-05)</small>
 
 * feat: update ([12bf6eb](https://github.com/Riuhou/react-native-kiosk-manager/commit/12bf6eb))
