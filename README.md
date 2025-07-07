@@ -74,6 +74,33 @@ const isOwner = await KioskManager.isDeviceOwner();
 await KioskManager.clearDeviceOwner();
 ```
 
+## DeviceAdminReceiver 配置说明 / DeviceAdminReceiver Setup
+
+**注意 / Note:**  
+集成本库的 App 需要在自己的包名下创建 `DeviceAdminReceiver.kt`，并参考 example 目录下的实现：  
+Apps integrating this library must create their own `DeviceAdminReceiver.kt` under their package, following the example implementation.
+
+1. 在你的项目中创建如下文件（以包名为例：`com.yourcompany.yourapp`）：  
+   Create the following file in your project (replace with your actual package name):
+
+   `android/app/src/main/java/com/yourcompany/yourapp/DeviceAdminReceiver.kt`
+
+2. 内容可参考 example：  
+   The content can refer to the example:
+
+   ```kotlin
+   package com.yourcompany.yourapp
+   import android.app.admin.DeviceAdminReceiver
+
+   class DeviceAdminReceiver : DeviceAdminReceiver() {}
+   ```
+
+3. AndroidManifest.xml 中的 `<receiver>` 也要使用你自己的包名和类名。  
+   The `<receiver>` in AndroidManifest.xml should also use your own package and class name.
+
+**参考实现 / Reference:**  
+可直接参考 `example/android/app/src/main/java/com/kioskmanager/example/DeviceAdminReceiver.kt`.
+
 ## Device Owner Setup Guide
 
 ### Quick Setup (Recommended)

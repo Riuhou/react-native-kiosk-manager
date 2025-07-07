@@ -1,5 +1,7 @@
 # Changelog
 
+## <small>0.5.13 (2025-07-07)</small>
+
 ## <small>0.5.12 (2025-07-07)</small>
 
 * test ([00730c5](https://github.com/Riuhou/react-native-kiosk-manager/commit/00730c5))
