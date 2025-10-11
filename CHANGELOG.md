@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 (2025-10-11)
+
+* feat: update ([468ef2a](https://github.com/Riuhou/react-native-kiosk-manager/commit/468ef2a))
+
+## <small>0.7.1 (2025-10-11)</small>
+
+* feat: update ([468ef2a](https://github.com/Riuhou/react-native-kiosk-manager/commit/468ef2a))
+
 ## <small>0.6.0 (2025-07-07)</small>
 
 ## <small>0.5.12 (2025-07-07)</small>

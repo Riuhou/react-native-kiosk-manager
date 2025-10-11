@@ -20,7 +20,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun startKiosk() {
-    val activity = currentActivity ?: return
+    val activity = reactContext.currentActivity ?: return
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       val am = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -32,7 +32,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun stopKiosk() {
-    val activity = currentActivity ?: return
+    val activity = reactContext.currentActivity ?: return
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       activity.stopLockTask()
@@ -54,7 +54,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun requestDeviceAdmin(promise: Promise) {
-    val activity = currentActivity
+    val activity = reactContext.currentActivity
     if (activity == null) {
       promise.reject("E_NO_ACTIVITY", "No current activity")
       return
