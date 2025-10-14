@@ -3,9 +3,12 @@ import {
   Text,
   View,
   StyleSheet,
-  Button,
   Alert,
   useColorScheme,
+  ScrollView,
+  Dimensions,
+  TouchableOpacity,
+  StatusBar,
 } from 'react-native';
 import KioskManager from 'react-native-kiosk-manager';
 
@@ -17,6 +20,11 @@ export default function App() {
   >(null);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
+
+  // 获取屏幕尺寸用于响应式设计
+  const { width, height } = Dimensions.get('window');
+  const isTablet = width >= 768;
+  const isLandscape = width > height;
 
   const handleStartKiosk = () => {
     KioskManager.startKiosk();
@@ -117,85 +125,237 @@ export default function App() {
         isDarkMode ? styles.darkContainer : styles.lightContainer,
       ]}
     >
-      <Text
-        style={[styles.title, isDarkMode ? styles.darkText : styles.lightText]}
+      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isTablet && styles.tabletContent,
+          isLandscape && styles.landscapeContent,
+        ]}
+        showsVerticalScrollIndicator={false}
       >
-        Kiosk Manager Example
-      </Text>
+        <View style={[styles.header, isTablet && styles.tabletHeader]}>
+          <Text
+            style={[
+              styles.title,
+              isDarkMode ? styles.darkText : styles.lightText,
+            ]}
+          >
+            Kiosk Manager Example
+          </Text>
+          <Text
+            style={[
+              styles.subtitle,
+              isDarkMode ? styles.darkSubtext : styles.lightSubtext,
+            ]}
+          >
+            {isTablet ? '平板模式' : '手机模式'} •{' '}
+            {isLandscape ? '横屏' : '竖屏'}
+          </Text>
+        </View>
 
-      <Button title="Start Kiosk Mode" onPress={handleStartKiosk} />
-      <View style={styles.spacer} />
+        <View style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}>
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.primaryButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleStartKiosk}
+          >
+            <Text style={[styles.buttonText, styles.primaryButtonText]}>
+              启动Kiosk模式
+            </Text>
+          </TouchableOpacity>
 
-      <Button title="Stop Kiosk Mode" onPress={handleStopKiosk} />
-      <View style={styles.spacer} />
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.secondaryButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleStopKiosk}
+          >
+            <Text style={[styles.buttonText, styles.secondaryButtonText]}>
+              停止Kiosk模式
+            </Text>
+          </TouchableOpacity>
 
-      <Button
-        title="Check Boot Auto Start"
-        onPress={handleCheckBootAutoStart}
-      />
-      <View style={styles.spacer} />
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.infoButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleCheckBootAutoStart}
+          >
+            <Text style={[styles.buttonText, styles.infoButtonText]}>
+              检查开机自启
+            </Text>
+          </TouchableOpacity>
 
-      <Button title="Request Device Admin" onPress={handleRequestDeviceAdmin} />
-      <View style={styles.spacer} />
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.warningButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleRequestDeviceAdmin}
+          >
+            <Text style={[styles.buttonText, styles.warningButtonText]}>
+              请求设备管理员
+            </Text>
+          </TouchableOpacity>
 
-      <Button
-        title="Check Device Owner Status"
-        onPress={handleCheckDeviceOwner}
-      />
-      <View style={styles.spacer} />
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.infoButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleCheckDeviceOwner}
+          >
+            <Text style={[styles.buttonText, styles.infoButtonText]}>
+              检查设备所有者
+            </Text>
+          </TouchableOpacity>
 
-      <Button
-        title="Setup Lock Task Package"
-        onPress={handleSetupLockTaskPackage}
-        color="#4CAF50"
-      />
-      <View style={styles.spacer} />
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.successButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleSetupLockTaskPackage}
+          >
+            <Text style={[styles.buttonText, styles.successButtonText]}>
+              设置锁定任务包
+            </Text>
+          </TouchableOpacity>
 
-      <Button
-        title="Clear Device Owner"
-        onPress={handleClearDeviceOwner}
-        color="#ff6b6b"
-      />
-      <View style={styles.spacer} />
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.dangerButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleClearDeviceOwner}
+          >
+            <Text style={[styles.buttonText, styles.dangerButtonText]}>
+              清除设备所有者
+            </Text>
+          </TouchableOpacity>
 
-      <Button
-        title="Disable Boot Auto Start"
-        onPress={handleDisableBootAutoStart}
-      />
-      <View style={styles.spacer} />
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.warningButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+            ]}
+            onPress={handleDisableBootAutoStart}
+          >
+            <Text style={[styles.buttonText, styles.warningButtonText]}>
+              禁用开机自启
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      {bootAutoStart !== null && (
-        <Text
-          style={[
-            styles.statusText,
-            isDarkMode ? styles.darkText : styles.lightText,
-          ]}
+        <View
+          style={[styles.statusSection, isTablet && styles.tabletStatusSection]}
         >
-          Boot Auto Start: {bootAutoStart ? 'Enabled' : 'Disabled'}
-        </Text>
-      )}
+          <Text
+            style={[
+              styles.statusTitle,
+              isDarkMode ? styles.darkText : styles.lightText,
+            ]}
+          >
+            状态信息
+          </Text>
 
-      {isDeviceOwner !== null && (
-        <Text
-          style={[
-            styles.statusText,
-            isDarkMode ? styles.darkText : styles.lightText,
-          ]}
-        >
-          Device Owner: {isDeviceOwner ? 'Active' : 'Inactive'}
-        </Text>
-      )}
+          {bootAutoStart !== null && (
+            <View
+              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
+            >
+              <Text
+                style={[
+                  styles.statusLabel,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                开机自启:
+              </Text>
+              <Text
+                style={[
+                  styles.statusValue,
+                  bootAutoStart ? styles.statusEnabled : styles.statusDisabled,
+                  isDarkMode && styles.darkText,
+                ]}
+              >
+                {bootAutoStart ? '已启用' : '已禁用'}
+              </Text>
+            </View>
+          )}
 
-      {isLockTaskPackageSetup !== null && (
-        <Text
-          style={[
-            styles.statusText,
-            isDarkMode ? styles.darkText : styles.lightText,
-          ]}
-        >
-          Lock Task Package: {isLockTaskPackageSetup ? 'Setup' : 'Not Setup'}
-        </Text>
-      )}
+          {isDeviceOwner !== null && (
+            <View
+              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
+            >
+              <Text
+                style={[
+                  styles.statusLabel,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                设备所有者:
+              </Text>
+              <Text
+                style={[
+                  styles.statusValue,
+                  isDeviceOwner ? styles.statusEnabled : styles.statusDisabled,
+                  isDarkMode && styles.darkText,
+                ]}
+              >
+                {isDeviceOwner ? '已激活' : '未激活'}
+              </Text>
+            </View>
+          )}
+
+          {isLockTaskPackageSetup !== null && (
+            <View
+              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
+            >
+              <Text
+                style={[
+                  styles.statusLabel,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                锁定任务包:
+              </Text>
+              <Text
+                style={[
+                  styles.statusValue,
+                  isLockTaskPackageSetup
+                    ? styles.statusEnabled
+                    : styles.statusDisabled,
+                  isDarkMode && styles.darkText,
+                ]}
+              >
+                {isLockTaskPackageSetup ? '已设置' : '未设置'}
+              </Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -203,33 +363,181 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
   },
   lightContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f8f9fa',
   },
   darkContainer: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#121212',
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  tabletContent: {
+    paddingHorizontal: 40,
+    paddingVertical: 30,
+  },
+  landscapeContent: {
+    paddingHorizontal: 30,
+  },
+  header: {
+    alignItems: 'center',
     marginBottom: 30,
   },
+  tabletHeader: {
+    marginBottom: 40,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  lightSubtext: {
+    color: '#666666',
+  },
+  darkSubtext: {
+    color: '#cccccc',
+  },
   lightText: {
-    color: '#000000',
+    color: '#212529',
   },
   darkText: {
     color: '#ffffff',
   },
-  statusText: {
-    fontSize: 16,
-    marginTop: 20,
-    fontWeight: '500',
+  buttonGrid: {
+    gap: 16,
   },
-  spacer: {
-    height: 15,
+  tabletButtonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 20,
+  },
+  actionButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 56,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  tabletActionButton: {
+    flex: 1,
+    minWidth: '45%',
+    maxWidth: '48%',
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // 按钮颜色变体
+  primaryButton: {
+    backgroundColor: '#007AFF',
+  },
+  primaryButtonText: {
+    color: '#ffffff',
+  },
+  secondaryButton: {
+    backgroundColor: '#6C757D',
+  },
+  secondaryButtonText: {
+    color: '#ffffff',
+  },
+  successButton: {
+    backgroundColor: '#28A745',
+  },
+  successButtonText: {
+    color: '#ffffff',
+  },
+  warningButton: {
+    backgroundColor: '#FFC107',
+  },
+  warningButtonText: {
+    color: '#212529',
+  },
+  dangerButton: {
+    backgroundColor: '#DC3545',
+  },
+  dangerButtonText: {
+    color: '#ffffff',
+  },
+  infoButton: {
+    backgroundColor: '#17A2B8',
+  },
+  infoButtonText: {
+    color: '#ffffff',
+  },
+  darkButton: {
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  statusSection: {
+    marginTop: 30,
+    padding: 20,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  tabletStatusSection: {
+    marginTop: 40,
+    padding: 30,
+  },
+  statusTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  statusItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+  },
+  darkStatusItem: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  statusLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  statusValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  statusEnabled: {
+    backgroundColor: '#d4edda',
+    color: '#155724',
+  },
+  statusDisabled: {
+    backgroundColor: '#f8d7da',
+    color: '#721c24',
   },
 });
