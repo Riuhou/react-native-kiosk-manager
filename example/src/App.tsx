@@ -348,6 +348,74 @@ export default function App() {
     }
   };
 
+  const handleSilentInstallApk = async (filePath: string, fileName: string) => {
+    try {
+      console.log('=== 静默安装APK ===');
+      console.log('文件路径:', filePath);
+      console.log('文件名:', fileName);
+      console.log('==================');
+
+      // 检查设备所有者权限
+      const isOwner = await KioskManager.isDeviceOwner();
+      if (!isOwner) {
+        Alert.alert(
+          '需要设备所有者权限',
+          '静默安装需要设备所有者权限，请先设置设备所有者',
+          [
+            { text: '取消', style: 'cancel' },
+            { 
+              text: '去设置', 
+              onPress: async () => {
+                try {
+                  await KioskManager.requestDeviceAdmin();
+                } catch (error) {
+                  console.error('请求设备管理员权限失败:', error);
+                }
+              }
+            }
+          ]
+        );
+        return;
+      }
+
+      // 开始静默安装
+      await KioskManager.silentInstallApk(filePath);
+      
+      console.log('APK静默安装启动成功');
+      Alert.alert('Success', `开始静默安装 ${fileName}`);
+    } catch (error) {
+      console.error('静默安装APK失败:', error);
+      Alert.alert('Error', `Failed to silent install APK: ${error}`);
+    }
+  };
+
+  const handleDownloadAndSilentInstall = async () => {
+    if (!apkUrl.trim()) {
+      Alert.alert('Error', 'Please enter a valid APK URL');
+      return;
+    }
+
+    setIsInstalling(true);
+    try {
+      console.log('=== 开始下载并静默安装 ===');
+      console.log('下载URL:', apkUrl);
+      console.log('==================');
+
+      await KioskManager.downloadAndSilentInstallApk(apkUrl);
+
+      console.log('=== 下载并静默安装完成 ===');
+      console.log('已启动静默安装');
+      console.log('==================');
+
+      Alert.alert('Success', 'APK download and silent installation started');
+    } catch (error) {
+      console.error('下载并静默安装失败:', error);
+      Alert.alert('Error', `Failed to download and silent install APK: ${error}`);
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
   return (
     <View
       style={[
@@ -712,6 +780,23 @@ export default function App() {
             <TouchableOpacity
               style={[
                 styles.compactButton,
+                styles.dangerButton,
+                isDarkMode && styles.darkButton,
+                isInstalling && styles.disabledButton,
+              ]}
+              onPress={handleDownloadAndSilentInstall}
+              disabled={isInstalling}
+            >
+              <Text
+                style={[styles.compactButtonText, styles.dangerButtonText]}
+              >
+                {isInstalling ? '处理中...' : '下载并静默安装'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.compactButton,
                 styles.infoButton,
                 isDarkMode && styles.darkButton,
               ]}
@@ -859,6 +944,17 @@ export default function App() {
                       }
                     >
                       <Text style={styles.installButtonText}>安装</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.silentInstallButton,
+                        isDarkMode && styles.darkSilentInstallButton,
+                      ]}
+                      onPress={() =>
+                        handleSilentInstallApk(file.filePath, file.fileName)
+                      }
+                    >
+                      <Text style={styles.silentInstallButtonText}>静默安装</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
@@ -1194,6 +1290,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#28a745',
   },
   installButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  silentInstallButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#dc3545',
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  darkSilentInstallButton: {
+    backgroundColor: '#dc3545',
+  },
+  silentInstallButtonText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',

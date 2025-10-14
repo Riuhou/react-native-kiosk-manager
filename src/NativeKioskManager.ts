@@ -33,6 +33,10 @@ export interface Spec extends TurboModule {
   checkInstallPermission(): Promise<boolean>;
   requestInstallPermission(): Promise<boolean>;
   
+  // 静默安装相关方法
+  silentInstallApk(filePath: string): Promise<boolean>;
+  downloadAndSilentInstallApk(url: string): Promise<boolean>;
+  
   // 文件管理方法
   getDownloadedFiles(): Promise<DownloadedFile[]>;
   deleteDownloadedFile(filePath: string): Promise<boolean>;

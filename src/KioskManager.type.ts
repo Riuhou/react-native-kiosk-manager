@@ -37,6 +37,10 @@ export interface KioskManagerType {
   checkInstallPermission: () => Promise<boolean>;
   requestInstallPermission: () => Promise<boolean>;
   
+  // 静默安装相关方法
+  silentInstallApk: (filePath: string) => Promise<boolean>;
+  downloadAndSilentInstallApk: (url: string) => Promise<boolean>;
+  
   // 事件监听器
   addDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;
   removeDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;

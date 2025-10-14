@@ -29,6 +29,7 @@ import android.content.pm.PackageManager.NameNotFoundException
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import android.content.IntentSender
 
 class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -515,5 +516,139 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       Log.e("KioskManager", "Failed to clear downloaded files: ${e.message}")
       promise.reject("E_CLEAR_FILES_FAILED", "Failed to clear downloaded files: ${e.message}")
     }
+  }
+
+  @ReactMethod
+  fun silentInstallApk(filePath: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val apkFile = File(filePath)
+      
+      // 打印静默安装文件信息
+      Log.i("KioskManager", "=== 开始静默安装 ===")
+      Log.i("KioskManager", "APK文件路径: $filePath")
+      Log.i("KioskManager", "文件存在: ${apkFile.exists()}")
+      Log.i("KioskManager", "文件大小: ${apkFile.length()} 字节")
+      Log.i("KioskManager", "文件可读: ${apkFile.canRead()}")
+      Log.i("KioskManager", "==================")
+      
+      if (!apkFile.exists()) {
+        promise.reject("E_SILENT_INSTALL_FAILED", "APK file not found: $filePath")
+        return
+      }
+      
+      // 检查设备管理员权限
+      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+      val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
+      
+      if (!dpm.isDeviceOwnerApp(context.packageName)) {
+        Log.e("KioskManager", "App is not device owner, cannot perform silent install")
+        promise.reject("E_NOT_DEVICE_OWNER", "App is not device owner. Silent install requires device owner privileges.")
+        return
+      }
+      
+      // 使用PackageInstaller进行静默安装
+      val packageInstaller = context.packageManager.packageInstaller
+      val sessionParams = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+      sessionParams.setAppPackageName(context.packageName)
+      
+      // 创建安装会话
+      val sessionId = packageInstaller.createSession(sessionParams)
+      val session = packageInstaller.openSession(sessionId)
+      
+      // 将APK文件写入会话
+      val inputStream = apkFile.inputStream()
+      val outputStream = session.openWrite("package", 0, apkFile.length())
+      
+      val buffer = ByteArray(8192)
+      var bytesRead: Int
+      while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+        outputStream.write(buffer, 0, bytesRead)
+      }
+      
+      inputStream.close()
+      outputStream.close()
+      
+      // 创建IntentSender用于安装回调
+      val pendingIntent = android.app.PendingIntent.getBroadcast(
+        context, 
+        sessionId, 
+        Intent("com.kioskmanager.INSTALL_COMPLETE"), 
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+      )
+      
+      // 提交安装
+      session.commit(pendingIntent.intentSender)
+      
+      Log.i("KioskManager", "=== 静默安装提交成功 ===")
+      Log.i("KioskManager", "安装会话ID: $sessionId")
+      Log.i("KioskManager", "==================")
+      promise.resolve(true)
+      
+      session.close()
+      
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Silent install failed: ${e.message}")
+      promise.reject("E_SILENT_INSTALL_FAILED", "Silent install failed: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun downloadAndSilentInstallApk(url: String, promise: Promise) {
+    downloadApk(url, object : Promise {
+      override fun resolve(value: Any?) {
+        if (value is WritableMap) {
+          val filePath = value.getString("filePath")
+          if (filePath != null) {
+            silentInstallApk(filePath, promise)
+          } else {
+            promise.reject("E_DOWNLOAD_FAILED", "Failed to get file path from download")
+          }
+        } else {
+          promise.reject("E_DOWNLOAD_FAILED", "Invalid download result")
+        }
+      }
+      
+      override fun reject(code: String, message: String?) {
+        promise.reject(code, message)
+      }
+      
+      override fun reject(code: String, throwable: Throwable?) {
+        promise.reject(code, throwable)
+      }
+      
+      override fun reject(code: String, message: String?, throwable: Throwable?) {
+        promise.reject(code, message, throwable)
+      }
+      
+      override fun reject(throwable: Throwable) {
+        promise.reject(throwable)
+      }
+      
+      override fun reject(throwable: Throwable, userInfo: WritableMap) {
+        promise.reject(throwable, userInfo)
+      }
+      
+      override fun reject(code: String, userInfo: WritableMap) {
+        promise.reject(code, userInfo)
+      }
+      
+      override fun reject(code: String, throwable: Throwable?, userInfo: WritableMap) {
+        promise.reject(code, throwable, userInfo)
+      }
+      
+      override fun reject(code: String, message: String?, userInfo: WritableMap) {
+        promise.reject(code, message, userInfo)
+      }
+      
+      override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) {
+        promise.reject(code, message, throwable, userInfo)
+      }
+      
+      @Deprecated("Prefer passing a module-specific error code to JS. Using this method will pass the error code EUNSPECIFIED")
+      override fun reject(message: String) {
+        promise.reject(message)
+      }
+    })
   }
 }
