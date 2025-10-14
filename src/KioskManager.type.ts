@@ -11,6 +11,15 @@ export interface DownloadProgress {
   percentage: number;     // 进度百分比 (0.0-100.0)
 }
 
+export interface DownloadedFile {
+  fileName: string;       // 文件名
+  filePath: string;       // 文件完整路径
+  fileSize: number;      // 文件大小（字节）
+  lastModified: number;   // 最后修改时间（时间戳）
+  canRead: boolean;      // 是否可读
+  canWrite: boolean;     // 是否可写
+}
+
 export interface KioskManagerType {
   startKiosk: () => void;
   stopKiosk: () => void;
@@ -31,4 +40,9 @@ export interface KioskManagerType {
   // 事件监听器
   addDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;
   removeDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;
+  
+  // 文件管理方法
+  getDownloadedFiles: () => Promise<DownloadedFile[]>;
+  deleteDownloadedFile: (filePath: string) => Promise<boolean>;
+  clearAllDownloadedFiles: () => Promise<number>;
 }

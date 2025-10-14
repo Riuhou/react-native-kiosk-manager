@@ -39,6 +39,11 @@ const KioskManager: KioskManagerType = {
   removeDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => {
     progressListeners.delete(callback);
   },
+  
+  // 文件管理方法
+  getDownloadedFiles: () => KioskManagerTurboModule?.getDownloadedFiles(),
+  deleteDownloadedFile: (filePath: string) => KioskManagerTurboModule?.deleteDownloadedFile(filePath),
+  clearAllDownloadedFiles: () => KioskManagerTurboModule?.clearAllDownloadedFiles(),
 };
 
 export default KioskManager;

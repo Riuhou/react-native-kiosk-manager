@@ -11,7 +11,11 @@ import {
   StatusBar,
   TextInput,
 } from 'react-native';
-import KioskManager, { type DownloadResult, type DownloadProgress } from 'react-native-kiosk-manager';
+import KioskManager, {
+  type DownloadResult,
+  type DownloadProgress,
+  type DownloadedFile,
+} from 'react-native-kiosk-manager';
 
 export default function App() {
   const [bootAutoStart, setBootAutoStart] = useState<boolean | null>(null);
@@ -19,11 +23,18 @@ export default function App() {
   const [isLockTaskPackageSetup, setIsLockTaskPackageSetup] = useState<
     boolean | null
   >(null);
-  const [apkUrl, setApkUrl] = useState<string>('https://assets.driver-day.com/LATEST/apk/dd.apk');
-  const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(null);
+  const [apkUrl, setApkUrl] = useState<string>(
+    'https://assets.driver-day.com/LATEST/apk/dd.apk'
+  );
+  const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(
+    null
+  );
   const [isInstalling, setIsInstalling] = useState<boolean>(false);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [downloadProgress, setDownloadProgress] =
+    useState<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [downloadedFiles, setDownloadedFiles] = useState<DownloadedFile[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState<boolean>(false);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
 
@@ -152,8 +163,25 @@ export default function App() {
       const result = await KioskManager.downloadApk(apkUrl);
       setDownloadResult(result);
       setDownloadProgress(null);
-      Alert.alert('Success', `APK downloaded successfully!\nFile: ${result.fileName}\nSize: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+
+      // 在控制台打印下载结果
+      console.log('=== 下载完成 ===');
+      console.log('文件名:', result.fileName);
+      console.log('文件路径:', result.filePath);
+      console.log('文件大小:', result.fileSize, '字节');
+      console.log(
+        '文件大小 (MB):',
+        (result.fileSize / 1024 / 1024).toFixed(2),
+        'MB'
+      );
+      console.log('==================');
+
+      Alert.alert(
+        'Success',
+        `APK downloaded successfully!\nFile: ${result.fileName}\nSize: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`
+      );
     } catch (error) {
+      console.error('下载失败:', error);
       Alert.alert('Error', `Failed to download APK: ${error}`);
     } finally {
       setIsDownloading(false);
@@ -168,9 +196,22 @@ export default function App() {
 
     setIsInstalling(true);
     try {
+      // 在控制台打印安装信息
+      console.log('=== 开始安装 ===');
+      console.log('安装文件路径:', downloadResult.filePath);
+      console.log('文件名:', downloadResult.fileName);
+      console.log('文件大小:', downloadResult.fileSize, '字节');
+      console.log('==================');
+
       await KioskManager.installApk(downloadResult.filePath);
+
+      console.log('=== 安装启动成功 ===');
+      console.log('已启动系统安装界面');
+      console.log('==================');
+
       Alert.alert('Success', 'APK installation started');
     } catch (error) {
+      console.error('安装失败:', error);
       Alert.alert('Error', `Failed to install APK: ${error}`);
     } finally {
       setIsInstalling(false);
@@ -185,9 +226,19 @@ export default function App() {
 
     setIsInstalling(true);
     try {
+      console.log('=== 开始下载并安装 ===');
+      console.log('下载URL:', apkUrl);
+      console.log('==================');
+
       await KioskManager.downloadAndInstallApk(apkUrl);
+
+      console.log('=== 下载并安装完成 ===');
+      console.log('已启动系统安装界面');
+      console.log('==================');
+
       Alert.alert('Success', 'APK download and installation started');
     } catch (error) {
+      console.error('下载并安装失败:', error);
       Alert.alert('Error', `Failed to download and install APK: ${error}`);
     } finally {
       setIsInstalling(false);
@@ -197,7 +248,10 @@ export default function App() {
   const handleCheckInstallPermission = async () => {
     try {
       const hasPermission = await KioskManager.checkInstallPermission();
-      Alert.alert('Install Permission', hasPermission ? 'Permission granted' : 'Permission required');
+      Alert.alert(
+        'Install Permission',
+        hasPermission ? 'Permission granted' : 'Permission required'
+      );
     } catch (error) {
       Alert.alert('Error', `Failed to check install permission: ${error}`);
     }
@@ -209,6 +263,76 @@ export default function App() {
       Alert.alert('Success', 'Install permission request sent');
     } catch (error) {
       Alert.alert('Error', `Failed to request install permission: ${error}`);
+    }
+  };
+
+  // 文件管理相关函数
+  const handleGetDownloadedFiles = async () => {
+    setIsLoadingFiles(true);
+    try {
+      const files = await KioskManager.getDownloadedFiles();
+      setDownloadedFiles(files);
+
+      console.log('=== 获取下载文件列表 ===');
+      console.log('找到', files.length, '个文件');
+      files.forEach((file, index) => {
+        console.log(`文件 ${index + 1}:`, file.fileName);
+        console.log('  路径:', file.filePath);
+        console.log('  大小:', file.fileSize, '字节');
+        console.log(
+          '  修改时间:',
+          new Date(file.lastModified).toLocaleString()
+        );
+        console.log('  可读:', file.canRead, '可写:', file.canWrite);
+      });
+      console.log('==================');
+
+      Alert.alert('Success', `Found ${files.length} downloaded files`);
+    } catch (error) {
+      console.error('获取文件列表失败:', error);
+      Alert.alert('Error', `Failed to get downloaded files: ${error}`);
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  };
+
+  const handleDeleteFile = async (filePath: string, fileName: string) => {
+    try {
+      console.log('=== 删除文件 ===');
+      console.log('文件路径:', filePath);
+      console.log('文件名:', fileName);
+      console.log('==================');
+
+      await KioskManager.deleteDownloadedFile(filePath);
+
+      // 更新文件列表
+      const updatedFiles = downloadedFiles.filter(
+        (file) => file.filePath !== filePath
+      );
+      setDownloadedFiles(updatedFiles);
+
+      console.log('文件删除成功:', fileName);
+      Alert.alert('Success', `File "${fileName}" deleted successfully`);
+    } catch (error) {
+      console.error('删除文件失败:', error);
+      Alert.alert('Error', `Failed to delete file: ${error}`);
+    }
+  };
+
+  const handleClearAllFiles = async () => {
+    try {
+      console.log('=== 清空所有文件 ===');
+      console.log('当前文件数量:', downloadedFiles.length);
+      console.log('==================');
+
+      const deletedCount = await KioskManager.clearAllDownloadedFiles();
+      setDownloadedFiles([]);
+
+      console.log('成功删除', deletedCount, '个文件');
+      Alert.alert('Success', `Cleared ${deletedCount} files successfully`);
+    } catch (error) {
+      console.error('清空文件失败:', error);
+      Alert.alert('Error', `Failed to clear files: ${error}`);
     }
   };
 
@@ -451,9 +575,7 @@ export default function App() {
         </View>
 
         {/* APK 更新功能部分 */}
-        <View
-          style={[styles.section, isTablet && styles.tabletSection]}
-        >
+        <View style={[styles.section, isTablet && styles.tabletSection]}>
           <Text
             style={[
               styles.sectionTitle,
@@ -473,10 +595,7 @@ export default function App() {
               APK 下载链接:
             </Text>
             <TextInput
-              style={[
-                styles.textInput,
-                isDarkMode && styles.darkTextInput,
-              ]}
+              style={[styles.textInput, isDarkMode && styles.darkTextInput]}
               value={apkUrl}
               onChangeText={setApkUrl}
               placeholder="输入 APK 文件的 URL"
@@ -485,7 +604,9 @@ export default function App() {
             />
           </View>
 
-          <View style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}>
+          <View
+            style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
+          >
             <TouchableOpacity
               style={[
                 styles.compactButton,
@@ -496,7 +617,9 @@ export default function App() {
               onPress={handleDownloadApk}
               disabled={isDownloading}
             >
-              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>
+              <Text
+                style={[styles.compactButtonText, styles.primaryButtonText]}
+              >
                 {isDownloading ? '下载中...' : '下载 APK'}
               </Text>
             </TouchableOpacity>
@@ -511,7 +634,9 @@ export default function App() {
               onPress={handleInstallApk}
               disabled={!downloadResult || isInstalling}
             >
-              <Text style={[styles.compactButtonText, styles.successButtonText]}>
+              <Text
+                style={[styles.compactButtonText, styles.successButtonText]}
+              >
                 {isInstalling ? '安装中...' : '安装 APK'}
               </Text>
             </TouchableOpacity>
@@ -542,12 +667,15 @@ export default function App() {
                   isDarkMode ? styles.darkText : styles.lightText,
                 ]}
               >
-                {((downloadProgress.bytesRead / 1024 / 1024).toFixed(2))} MB / {((downloadProgress.totalBytes / 1024 / 1024).toFixed(2))} MB
+                {(downloadProgress.bytesRead / 1024 / 1024).toFixed(2)} MB /{' '}
+                {(downloadProgress.totalBytes / 1024 / 1024).toFixed(2)} MB
               </Text>
             </View>
           )}
 
-          <View style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}>
+          <View
+            style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
+          >
             <TouchableOpacity
               style={[
                 styles.compactButton,
@@ -558,7 +686,9 @@ export default function App() {
               onPress={handleDownloadAndInstall}
               disabled={isInstalling}
             >
-              <Text style={[styles.compactButtonText, styles.warningButtonText]}>
+              <Text
+                style={[styles.compactButtonText, styles.warningButtonText]}
+              >
                 {isInstalling ? '处理中...' : '下载并安装'}
               </Text>
             </TouchableOpacity>
@@ -602,13 +732,133 @@ export default function App() {
               >
                 下载结果:
               </Text>
+              <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
+                {downloadResult.fileName} (
+                {(downloadResult.fileSize / 1024 / 1024).toFixed(2)} MB)
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* 文件管理部分 */}
+        <View style={[styles.section, isTablet && styles.tabletSection]}>
+          <Text
+            style={[
+              styles.sectionTitle,
+              isDarkMode ? styles.darkText : styles.lightText,
+            ]}
+          >
+            下载文件管理
+          </Text>
+
+          <View
+            style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
+          >
+            <TouchableOpacity
+              style={[
+                styles.compactButton,
+                styles.infoButton,
+                isDarkMode && styles.darkButton,
+                isLoadingFiles && styles.disabledButton,
+              ]}
+              onPress={handleGetDownloadedFiles}
+              disabled={isLoadingFiles}
+            >
+              <Text style={[styles.compactButtonText, styles.infoButtonText]}>
+                {isLoadingFiles ? '加载中...' : '获取文件列表'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.compactButton,
+                styles.dangerButton,
+                isDarkMode && styles.darkButton,
+                downloadedFiles.length === 0 && styles.disabledButton,
+              ]}
+              onPress={handleClearAllFiles}
+              disabled={downloadedFiles.length === 0}
+            >
+              <Text style={[styles.compactButtonText, styles.dangerButtonText]}>
+                清空所有文件
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 文件列表 */}
+          {downloadedFiles.length > 0 && (
+            <View style={styles.fileListContainer}>
               <Text
                 style={[
-                  styles.statusValue,
-                  isDarkMode && styles.darkText,
+                  styles.fileListTitle,
+                  isDarkMode ? styles.darkText : styles.lightText,
                 ]}
               >
-                {downloadResult.fileName} ({(downloadResult.fileSize / 1024 / 1024).toFixed(2)} MB)
+                已下载文件 ({downloadedFiles.length})
+              </Text>
+
+              {downloadedFiles.map((file) => (
+                <View
+                  key={file.filePath}
+                  style={[styles.fileItem, isDarkMode && styles.darkFileItem]}
+                >
+                  <View style={styles.fileInfo}>
+                    <Text
+                      style={[
+                        styles.fileName,
+                        isDarkMode ? styles.darkText : styles.lightText,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {file.fileName}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.fileDetails,
+                        isDarkMode ? styles.darkText : styles.lightText,
+                      ]}
+                    >
+                      {(file.fileSize / 1024 / 1024).toFixed(2)} MB •{' '}
+                      {new Date(file.lastModified).toLocaleDateString()}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.filePath,
+                        isDarkMode ? styles.darkText : styles.lightText,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {file.filePath}
+                    </Text>
+                  </View>
+
+                  <View style={styles.fileActions}>
+                    <TouchableOpacity
+                      style={[
+                        styles.deleteButton,
+                        isDarkMode && styles.darkDeleteButton,
+                      ]}
+                      onPress={() =>
+                        handleDeleteFile(file.filePath, file.fileName)
+                      }
+                    >
+                      <Text style={styles.deleteButtonText}>删除</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {downloadedFiles.length === 0 && !isLoadingFiles && (
+            <View style={styles.emptyState}>
+              <Text
+                style={[
+                  styles.emptyStateText,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                暂无下载文件
               </Text>
             </View>
           )}
@@ -821,7 +1071,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8d7da',
     color: '#721c24',
   },
-  
+
   // APK 更新相关样式
   section: {
     marginTop: 24,
@@ -858,6 +1108,76 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     opacity: 0.7,
+  },
+
+  // 文件管理相关样式
+  fileListContainer: {
+    marginTop: 16,
+  },
+  fileListTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  fileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  darkFileItem: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  fileInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  fileDetails: {
+    fontSize: 12,
+    opacity: 0.7,
+    marginBottom: 2,
+  },
+  filePath: {
+    fontSize: 10,
+    opacity: 0.5,
+    fontFamily: 'monospace',
+  },
+  fileActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deleteButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#dc3545',
+    borderRadius: 6,
+  },
+  darkDeleteButton: {
+    backgroundColor: '#dc3545',
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  emptyState: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    opacity: 0.6,
+    fontStyle: 'italic',
   },
   tabletSection: {
     marginTop: 32,

@@ -7,6 +7,15 @@ export interface DownloadResult {
   fileSize: number;
 }
 
+export interface DownloadedFile {
+  fileName: string;
+  filePath: string;
+  fileSize: number;
+  lastModified: number;
+  canRead: boolean;
+  canWrite: boolean;
+}
+
 export interface Spec extends TurboModule {
   startKiosk(): void;
   stopKiosk(): void;
@@ -23,6 +32,11 @@ export interface Spec extends TurboModule {
   downloadAndInstallApk(url: string): Promise<boolean>;
   checkInstallPermission(): Promise<boolean>;
   requestInstallPermission(): Promise<boolean>;
+  
+  // 文件管理方法
+  getDownloadedFiles(): Promise<DownloadedFile[]>;
+  deleteDownloadedFile(filePath: string): Promise<boolean>;
+  clearAllDownloadedFiles(): Promise<number>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('KioskManager');

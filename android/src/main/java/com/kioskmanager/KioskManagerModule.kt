@@ -160,6 +160,16 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       
       val apkFile = File(downloadsDir, fileName)
       
+      // 打印下载开始信息
+      Log.i("KioskManager", "=== 开始下载 ===")
+      Log.i("KioskManager", "下载URL: $url")
+      Log.i("KioskManager", "目标文件名: $fileName")
+      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
+      Log.i("KioskManager", "完整路径: ${apkFile.absolutePath}")
+      Log.i("KioskManager", "目录存在: ${downloadsDir.exists()}")
+      Log.i("KioskManager", "目录可写: ${downloadsDir.canWrite()}")
+      Log.i("KioskManager", "==================")
+      
       val connection = URL(url).openConnection() as HttpURLConnection
       connection.requestMethod = "GET"
       connection.connect()
@@ -196,6 +206,17 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       outputStream.close()
       connection.disconnect()
       
+      // 打印下载文件的详细信息
+      Log.i("KioskManager", "=== 下载完成 ===")
+      Log.i("KioskManager", "文件名: $fileName")
+      Log.i("KioskManager", "文件路径: ${apkFile.absolutePath}")
+      Log.i("KioskManager", "文件大小: ${apkFile.length()} 字节 (${apkFile.length() / 1024 / 1024} MB)")
+      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
+      Log.i("KioskManager", "文件是否存在: ${apkFile.exists()}")
+      Log.i("KioskManager", "文件可读: ${apkFile.canRead()}")
+      Log.i("KioskManager", "文件可写: ${apkFile.canWrite()}")
+      Log.i("KioskManager", "==================")
+      
       val result = Arguments.createMap()
       result.putString("filePath", apkFile.absolutePath)
       result.putString("fileName", fileName)
@@ -229,6 +250,14 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     try {
       val context = reactApplicationContext
       val apkFile = File(filePath)
+      
+      // 打印安装文件信息
+      Log.i("KioskManager", "=== 开始安装 ===")
+      Log.i("KioskManager", "APK文件路径: $filePath")
+      Log.i("KioskManager", "文件存在: ${apkFile.exists()}")
+      Log.i("KioskManager", "文件大小: ${apkFile.length()} 字节")
+      Log.i("KioskManager", "文件可读: ${apkFile.canRead()}")
+      Log.i("KioskManager", "==================")
       
       if (!apkFile.exists()) {
         promise.reject("E_INSTALL_FAILED", "APK file not found: $filePath")
@@ -265,6 +294,13 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       }
       
       context.startActivity(intent)
+      
+      // 打印安装完成信息
+      Log.i("KioskManager", "=== 安装启动成功 ===")
+      Log.i("KioskManager", "已启动系统安装界面")
+      Log.i("KioskManager", "APK URI: $apkUri")
+      Log.i("KioskManager", "==================")
+      
       promise.resolve(true)
       
     } catch (e: Exception) {
@@ -366,6 +402,118 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       }
     } catch (e: Exception) {
       promise.reject("E_REQUEST_FAILED", "Failed to request install permission: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun getDownloadedFiles(promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val downloadsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "apk_updates")
+      
+      if (!downloadsDir.exists()) {
+        promise.resolve(Arguments.createArray())
+        return
+      }
+      
+      val files = downloadsDir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") } ?: emptyList()
+      val fileList = Arguments.createArray()
+      
+      files.sortedByDescending { it.lastModified() }.forEach { file ->
+        val fileInfo = Arguments.createMap()
+        fileInfo.putString("fileName", file.name)
+        fileInfo.putString("filePath", file.absolutePath)
+        fileInfo.putLong("fileSize", file.length())
+        fileInfo.putDouble("lastModified", file.lastModified().toDouble())
+        fileInfo.putBoolean("canRead", file.canRead())
+        fileInfo.putBoolean("canWrite", file.canWrite())
+        fileList.pushMap(fileInfo)
+      }
+      
+      Log.i("KioskManager", "=== 获取下载文件列表 ===")
+      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
+      Log.i("KioskManager", "找到 ${files.size} 个 APK 文件")
+      files.forEach { file ->
+        Log.i("KioskManager", "文件: ${file.name} (${file.length()} 字节)")
+      }
+      Log.i("KioskManager", "==================")
+      
+      promise.resolve(fileList)
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Failed to get downloaded files: ${e.message}")
+      promise.reject("E_GET_FILES_FAILED", "Failed to get downloaded files: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun deleteDownloadedFile(filePath: String, promise: Promise) {
+    try {
+      val file = File(filePath)
+      
+      Log.i("KioskManager", "=== 删除文件 ===")
+      Log.i("KioskManager", "文件路径: $filePath")
+      Log.i("KioskManager", "文件存在: ${file.exists()}")
+      Log.i("KioskManager", "文件大小: ${file.length()} 字节")
+      Log.i("KioskManager", "==================")
+      
+      if (!file.exists()) {
+        promise.reject("E_FILE_NOT_FOUND", "File not found: $filePath")
+        return
+      }
+      
+      if (!file.canWrite()) {
+        promise.reject("E_FILE_NOT_WRITABLE", "File is not writable: $filePath")
+        return
+      }
+      
+      val deleted = file.delete()
+      if (deleted) {
+        Log.i("KioskManager", "文件删除成功: $filePath")
+        promise.resolve(true)
+      } else {
+        Log.e("KioskManager", "文件删除失败: $filePath")
+        promise.reject("E_DELETE_FAILED", "Failed to delete file: $filePath")
+      }
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Failed to delete file: ${e.message}")
+      promise.reject("E_DELETE_FAILED", "Failed to delete file: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun clearAllDownloadedFiles(promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val downloadsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "apk_updates")
+      
+      if (!downloadsDir.exists()) {
+        promise.resolve(0)
+        return
+      }
+      
+      val files = downloadsDir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") } ?: emptyList()
+      var deletedCount = 0
+      
+      Log.i("KioskManager", "=== 清空下载文件 ===")
+      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
+      Log.i("KioskManager", "找到 ${files.size} 个 APK 文件")
+      
+      files.forEach { file ->
+        if (file.delete()) {
+          deletedCount++
+          Log.i("KioskManager", "已删除: ${file.name}")
+        } else {
+          Log.e("KioskManager", "删除失败: ${file.name}")
+        }
+      }
+      
+      Log.i("KioskManager", "成功删除 $deletedCount 个文件")
+      Log.i("KioskManager", "==================")
+      
+      promise.resolve(deletedCount)
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Failed to clear downloaded files: ${e.message}")
+      promise.reject("E_CLEAR_FILES_FAILED", "Failed to clear downloaded files: ${e.message}")
     }
   }
 }
