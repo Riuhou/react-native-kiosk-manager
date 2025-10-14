@@ -389,6 +389,47 @@ export default function App() {
     }
   };
 
+  const handleSilentInstallAndLaunchApk = async (filePath: string, fileName: string) => {
+    try {
+      console.log('=== 静默安装并启动APK ===');
+      console.log('文件路径:', filePath);
+      console.log('文件名:', fileName);
+      console.log('==================');
+
+      // 检查设备所有者权限
+      const isOwner = await KioskManager.isDeviceOwner();
+      if (!isOwner) {
+        Alert.alert(
+          '需要设备所有者权限',
+          '静默安装需要设备所有者权限，请先设置设备所有者',
+          [
+            { text: '取消', style: 'cancel' },
+            { 
+              text: '去设置', 
+              onPress: async () => {
+                try {
+                  await KioskManager.requestDeviceAdmin();
+                } catch (error) {
+                  console.error('请求设备管理员权限失败:', error);
+                }
+              }
+            }
+          ]
+        );
+        return;
+      }
+
+      // 开始静默安装并启动
+      await KioskManager.silentInstallAndLaunchApk(filePath);
+      
+      console.log('APK静默安装并启动启动成功');
+      Alert.alert('Success', `开始静默安装并启动 ${fileName}`);
+    } catch (error) {
+      console.error('静默安装并启动APK失败:', error);
+      Alert.alert('Error', `Failed to silent install and launch APK: ${error}`);
+    }
+  };
+
   const handleDownloadAndSilentInstall = async () => {
     if (!apkUrl.trim()) {
       Alert.alert('Error', 'Please enter a valid APK URL');
@@ -411,6 +452,33 @@ export default function App() {
     } catch (error) {
       console.error('下载并静默安装失败:', error);
       Alert.alert('Error', `Failed to download and silent install APK: ${error}`);
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  const handleDownloadAndSilentInstallAndLaunch = async () => {
+    if (!apkUrl.trim()) {
+      Alert.alert('Error', 'Please enter a valid APK URL');
+      return;
+    }
+
+    setIsInstalling(true);
+    try {
+      console.log('=== 开始下载并静默安装并启动 ===');
+      console.log('下载URL:', apkUrl);
+      console.log('==================');
+
+      await KioskManager.downloadAndSilentInstallAndLaunchApk(apkUrl);
+
+      console.log('=== 下载并静默安装并启动完成 ===');
+      console.log('已启动静默安装，安装完成后将自动启动应用');
+      console.log('==================');
+
+      Alert.alert('Success', 'APK download, silent installation and auto-launch started');
+    } catch (error) {
+      console.error('下载并静默安装并启动失败:', error);
+      Alert.alert('Error', `Failed to download, silent install and launch APK: ${error}`);
     } finally {
       setIsInstalling(false);
     }
@@ -797,6 +865,23 @@ export default function App() {
             <TouchableOpacity
               style={[
                 styles.compactButton,
+                styles.successButton,
+                isDarkMode && styles.darkButton,
+                isInstalling && styles.disabledButton,
+              ]}
+              onPress={handleDownloadAndSilentInstallAndLaunch}
+              disabled={isInstalling}
+            >
+              <Text
+                style={[styles.compactButtonText, styles.successButtonText]}
+              >
+                {isInstalling ? '处理中...' : '下载并静默安装并启动'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.compactButton,
                 styles.infoButton,
                 isDarkMode && styles.darkButton,
               ]}
@@ -955,6 +1040,17 @@ export default function App() {
                       }
                     >
                       <Text style={styles.silentInstallButtonText}>静默安装</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.autoLaunchButton,
+                        isDarkMode && styles.darkAutoLaunchButton,
+                      ]}
+                      onPress={() =>
+                        handleSilentInstallAndLaunchApk(file.filePath, file.fileName)
+                      }
+                    >
+                      <Text style={styles.autoLaunchButtonText}>静默安装并启动</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
@@ -1305,6 +1401,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#dc3545',
   },
   silentInstallButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  autoLaunchButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#28a745',
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  darkAutoLaunchButton: {
+    backgroundColor: '#28a745',
+  },
+  autoLaunchButtonText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',

@@ -550,7 +550,17 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       // 使用PackageInstaller进行静默安装
       val packageInstaller = context.packageManager.packageInstaller
       val sessionParams = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-      sessionParams.setAppPackageName(context.packageName)
+      
+      // 获取APK包信息
+      val packageInfo = context.packageManager.getPackageArchiveInfo(filePath, 0)
+      if (packageInfo != null) {
+        sessionParams.setAppPackageName(packageInfo.packageName)
+        Log.i("KioskManager", "目标包名: ${packageInfo.packageName}")
+      }
+      
+      // 设置安装参数，确保静默安装
+      sessionParams.setInstallLocation(PackageInstaller.SessionParams.INSTALL_LOCATION_AUTO)
+      sessionParams.setInstallReason(PackageInstaller.SessionParams.INSTALL_REASON_DEVICE_RESTORE)
       
       // 创建安装会话
       val sessionId = packageInstaller.createSession(sessionParams)
@@ -650,5 +660,195 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         promise.reject(message)
       }
     })
+  }
+
+  @ReactMethod
+  fun silentInstallAndLaunchApk(filePath: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val apkFile = File(filePath)
+      
+      // 打印静默安装并启动文件信息
+      Log.i("KioskManager", "=== 开始静默安装并启动 ===")
+      Log.i("KioskManager", "APK文件路径: $filePath")
+      Log.i("KioskManager", "文件存在: ${apkFile.exists()}")
+      Log.i("KioskManager", "文件大小: ${apkFile.length()} 字节")
+      Log.i("KioskManager", "==================")
+      
+      if (!apkFile.exists()) {
+        promise.reject("E_SILENT_INSTALL_FAILED", "APK file not found: $filePath")
+        return
+      }
+      
+      // 检查设备管理员权限
+      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+      val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
+      
+      if (!dpm.isDeviceOwnerApp(context.packageName)) {
+        Log.e("KioskManager", "App is not device owner, cannot perform silent install")
+        promise.reject("E_NOT_DEVICE_OWNER", "App is not device owner. Silent install requires device owner privileges.")
+        return
+      }
+      
+      // 获取APK包信息
+      val packageInfo = context.packageManager.getPackageArchiveInfo(filePath, 0)
+      if (packageInfo == null) {
+        promise.reject("E_INVALID_APK", "Invalid APK file")
+        return
+      }
+      
+      val targetPackageName = packageInfo.packageName
+      Log.i("KioskManager", "目标包名: $targetPackageName")
+      
+      // 使用PackageInstaller进行静默安装
+      val packageInstaller = context.packageManager.packageInstaller
+      val sessionParams = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+      sessionParams.setAppPackageName(targetPackageName)
+      
+      // 设置安装参数，确保静默安装
+      sessionParams.setInstallLocation(PackageInstaller.SessionParams.INSTALL_LOCATION_AUTO)
+      sessionParams.setInstallReason(PackageInstaller.SessionParams.INSTALL_REASON_DEVICE_RESTORE)
+      
+      // 创建安装会话
+      val sessionId = packageInstaller.createSession(sessionParams)
+      val session = packageInstaller.openSession(sessionId)
+      
+      // 将APK文件写入会话
+      val inputStream = apkFile.inputStream()
+      val outputStream = session.openWrite("package", 0, apkFile.length())
+      
+      val buffer = ByteArray(8192)
+      var bytesRead: Int
+      while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+        outputStream.write(buffer, 0, bytesRead)
+      }
+      
+      inputStream.close()
+      outputStream.close()
+      
+      // 创建IntentSender用于安装回调
+      val pendingIntent = android.app.PendingIntent.getBroadcast(
+        context, 
+        sessionId, 
+        Intent("com.kioskmanager.INSTALL_COMPLETE"), 
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+      )
+      
+      // 提交安装
+      session.commit(pendingIntent.intentSender)
+      
+      Log.i("KioskManager", "=== 静默安装提交成功 ===")
+      Log.i("KioskManager", "安装会话ID: $sessionId")
+      Log.i("KioskManager", "目标包名: $targetPackageName")
+      Log.i("KioskManager", "==================")
+      
+      // 延迟启动应用（等待安装完成）
+      android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        try {
+          launchApp(targetPackageName)
+        } catch (e: Exception) {
+          Log.e("KioskManager", "Failed to launch app after install: ${e.message}")
+        }
+      }, 3000) // 等待3秒后启动应用
+      
+      promise.resolve(true)
+      session.close()
+      
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Silent install and launch failed: ${e.message}")
+      promise.reject("E_SILENT_INSTALL_FAILED", "Silent install and launch failed: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun downloadAndSilentInstallAndLaunchApk(url: String, promise: Promise) {
+    downloadApk(url, object : Promise {
+      override fun resolve(value: Any?) {
+        if (value is WritableMap) {
+          val filePath = value.getString("filePath")
+          if (filePath != null) {
+            silentInstallAndLaunchApk(filePath, promise)
+          } else {
+            promise.reject("E_DOWNLOAD_FAILED", "Failed to get file path from download")
+          }
+        } else {
+          promise.reject("E_DOWNLOAD_FAILED", "Invalid download result")
+        }
+      }
+      
+      override fun reject(code: String, message: String?) {
+        promise.reject(code, message)
+      }
+      
+      override fun reject(code: String, throwable: Throwable?) {
+        promise.reject(code, throwable)
+      }
+      
+      override fun reject(code: String, message: String?, throwable: Throwable?) {
+        promise.reject(code, message, throwable)
+      }
+      
+      override fun reject(throwable: Throwable) {
+        promise.reject(throwable)
+      }
+      
+      override fun reject(throwable: Throwable, userInfo: WritableMap) {
+        promise.reject(throwable, userInfo)
+      }
+      
+      override fun reject(code: String, userInfo: WritableMap) {
+        promise.reject(code, userInfo)
+      }
+      
+      override fun reject(code: String, throwable: Throwable?, userInfo: WritableMap) {
+        promise.reject(code, throwable, userInfo)
+      }
+      
+      override fun reject(code: String, message: String?, userInfo: WritableMap) {
+        promise.reject(code, message, userInfo)
+      }
+      
+      override fun reject(code: String?, message: String?, throwable: Throwable?, userInfo: WritableMap?) {
+        promise.reject(code, message, throwable, userInfo)
+      }
+      
+      @Deprecated("Prefer passing a module-specific error code to JS. Using this method will pass the error code EUNSPECIFIED")
+      override fun reject(message: String) {
+        promise.reject(message)
+      }
+    })
+  }
+
+  private fun launchApp(packageName: String) {
+    try {
+      val context = reactApplicationContext
+      val packageManager = context.packageManager
+      
+      // 检查应用是否已安装
+      try {
+        packageManager.getPackageInfo(packageName, 0)
+      } catch (e: PackageManager.NameNotFoundException) {
+        Log.e("KioskManager", "App not found: $packageName")
+        return
+      }
+      
+      // 获取应用的主Activity
+      val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+      if (launchIntent != null) {
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        
+        context.startActivity(launchIntent)
+        
+        Log.i("KioskManager", "=== 应用启动成功 ===")
+        Log.i("KioskManager", "包名: $packageName")
+        Log.i("KioskManager", "==================")
+      } else {
+        Log.e("KioskManager", "No launch intent found for package: $packageName")
+      }
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Failed to launch app: ${e.message}")
+    }
   }
 }

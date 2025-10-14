@@ -35,6 +35,8 @@ const KioskManager: KioskManagerType = {
   // 静默安装相关方法
   silentInstallApk: (filePath: string) => KioskManagerTurboModule?.silentInstallApk(filePath),
   downloadAndSilentInstallApk: (url: string) => KioskManagerTurboModule?.downloadAndSilentInstallApk(url),
+  silentInstallAndLaunchApk: (filePath: string) => KioskManagerTurboModule?.silentInstallAndLaunchApk(filePath),
+  downloadAndSilentInstallAndLaunchApk: (url: string) => KioskManagerTurboModule?.downloadAndSilentInstallAndLaunchApk(url),
   
   // 事件监听器
   addDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => {
