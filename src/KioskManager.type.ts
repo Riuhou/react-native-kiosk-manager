@@ -27,4 +27,8 @@ export interface KioskManagerType {
   downloadAndInstallApk: (url: string) => Promise<boolean>;
   checkInstallPermission: () => Promise<boolean>;
   requestInstallPermission: () => Promise<boolean>;
+  
+  // 事件监听器
+  addDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;
+  removeDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;
 }

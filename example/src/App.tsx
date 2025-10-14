@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Text,
   View,
@@ -11,7 +11,7 @@ import {
   StatusBar,
   TextInput,
 } from 'react-native';
-import KioskManager, { type DownloadResult } from 'react-native-kiosk-manager';
+import KioskManager, { type DownloadResult, type DownloadProgress } from 'react-native-kiosk-manager';
 
 export default function App() {
   const [bootAutoStart, setBootAutoStart] = useState<boolean | null>(null);
@@ -22,6 +22,8 @@ export default function App() {
   const [apkUrl, setApkUrl] = useState<string>('https://assets.driver-day.com/LATEST/apk/dd.apk');
   const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(null);
   const [isInstalling, setIsInstalling] = useState<boolean>(false);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
 
@@ -29,6 +31,19 @@ export default function App() {
   const { width, height } = Dimensions.get('window');
   const isTablet = width >= 768;
   const isLandscape = width > height;
+
+  // 设置下载进度监听器
+  useEffect(() => {
+    const handleProgress = (progress: DownloadProgress) => {
+      setDownloadProgress(progress);
+    };
+
+    KioskManager.addDownloadProgressListener(handleProgress);
+
+    return () => {
+      KioskManager.removeDownloadProgressListener(handleProgress);
+    };
+  }, []);
 
   const handleStartKiosk = () => {
     KioskManager.startKiosk();
@@ -129,12 +144,19 @@ export default function App() {
       return;
     }
 
+    setIsDownloading(true);
+    setDownloadProgress(null);
+    setDownloadResult(null);
+
     try {
       const result = await KioskManager.downloadApk(apkUrl);
       setDownloadResult(result);
+      setDownloadProgress(null);
       Alert.alert('Success', `APK downloaded successfully!\nFile: ${result.fileName}\nSize: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
     } catch (error) {
       Alert.alert('Error', `Failed to download APK: ${error}`);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -463,79 +485,106 @@ export default function App() {
             />
           </View>
 
-          <View style={styles.buttonRow}>
+          <View style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}>
             <TouchableOpacity
               style={[
-                styles.actionButton,
+                styles.compactButton,
                 styles.primaryButton,
                 isDarkMode && styles.darkButton,
-                isTablet && styles.tabletActionButton,
+                isDownloading && styles.disabledButton,
               ]}
               onPress={handleDownloadApk}
+              disabled={isDownloading}
             >
-              <Text style={[styles.buttonText, styles.primaryButtonText]}>
-                下载 APK
+              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>
+                {isDownloading ? '下载中...' : '下载 APK'}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
-                styles.actionButton,
+                styles.compactButton,
                 styles.successButton,
                 isDarkMode && styles.darkButton,
-                isTablet && styles.tabletActionButton,
                 !downloadResult && styles.disabledButton,
               ]}
               onPress={handleInstallApk}
               disabled={!downloadResult || isInstalling}
             >
-              <Text style={[styles.buttonText, styles.successButtonText]}>
+              <Text style={[styles.compactButtonText, styles.successButtonText]}>
                 {isInstalling ? '安装中...' : '安装 APK'}
               </Text>
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.warningButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-              isInstalling && styles.disabledButton,
-            ]}
-            onPress={handleDownloadAndInstall}
-            disabled={isInstalling}
-          >
-            <Text style={[styles.buttonText, styles.warningButtonText]}>
-              {isInstalling ? '处理中...' : '下载并安装'}
-            </Text>
-          </TouchableOpacity>
+          {/* 下载进度显示 */}
+          {isDownloading && downloadProgress && (
+            <View style={styles.progressContainer}>
+              <Text
+                style={[
+                  styles.progressText,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                下载进度: {downloadProgress.progress}%
+              </Text>
+              <View style={styles.progressBarContainer}>
+                <View
+                  style={[
+                    styles.progressBar,
+                    { width: `${downloadProgress.progress}%` },
+                  ]}
+                />
+              </View>
+              <Text
+                style={[
+                  styles.progressDetails,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                {((downloadProgress.bytesRead / 1024 / 1024).toFixed(2))} MB / {((downloadProgress.totalBytes / 1024 / 1024).toFixed(2))} MB
+              </Text>
+            </View>
+          )}
 
-          <View style={styles.buttonRow}>
+          <View style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}>
             <TouchableOpacity
               style={[
-                styles.actionButton,
+                styles.compactButton,
+                styles.warningButton,
+                isDarkMode && styles.darkButton,
+                isInstalling && styles.disabledButton,
+              ]}
+              onPress={handleDownloadAndInstall}
+              disabled={isInstalling}
+            >
+              <Text style={[styles.compactButtonText, styles.warningButtonText]}>
+                {isInstalling ? '处理中...' : '下载并安装'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.compactButton,
                 styles.infoButton,
                 isDarkMode && styles.darkButton,
-                isTablet && styles.tabletActionButton,
               ]}
               onPress={handleCheckInstallPermission}
             >
-              <Text style={[styles.buttonText, styles.infoButtonText]}>
+              <Text style={[styles.compactButtonText, styles.infoButtonText]}>
                 检查安装权限
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
-                styles.actionButton,
+                styles.compactButton,
                 styles.infoButton,
                 isDarkMode && styles.darkButton,
-                isTablet && styles.tabletActionButton,
               ]}
               onPress={handleRequestInstallPermission}
             >
-              <Text style={[styles.buttonText, styles.infoButtonText]}>
+              <Text style={[styles.compactButtonText, styles.infoButtonText]}>
                 请求安装权限
               </Text>
             </TouchableOpacity>
@@ -624,13 +673,14 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   buttonGrid: {
-    gap: 16,
-  },
-  tabletButtonGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 20,
+    gap: 12,
+    marginBottom: 16,
+  },
+  tabletButtonGrid: {
+    gap: 16,
   },
   actionButton: {
     paddingVertical: 16,
@@ -648,6 +698,23 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  compactButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    flex: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
   tabletActionButton: {
     flex: 1,
     minWidth: '45%',
@@ -655,6 +722,11 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  compactButtonText: {
+    fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -720,26 +792,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginVertical: 4,
-    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginVertical: 2,
+    borderRadius: 6,
     backgroundColor: 'rgba(255,255,255,0.7)',
   },
   darkStatusItem: {
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   statusLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     flex: 1,
   },
   statusValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
   },
   statusEnabled: {
     backgroundColor: '#d4edda',
@@ -752,14 +824,44 @@ const styles = StyleSheet.create({
   
   // APK 更新相关样式
   section: {
-    marginTop: 30,
-    padding: 20,
+    marginTop: 24,
+    padding: 16,
     borderRadius: 12,
     backgroundColor: 'rgba(0,0,0,0.05)',
   },
+  progressContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+    padding: 16,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 8,
+  },
+  progressText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#007AFF',
+    borderRadius: 3,
+  },
+  progressDetails: {
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
   tabletSection: {
-    marginTop: 40,
-    padding: 30,
+    marginTop: 32,
+    padding: 24,
   },
   sectionTitle: {
     fontSize: 20,
@@ -768,7 +870,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   inputContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   inputLabel: {
     fontSize: 16,
