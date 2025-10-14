@@ -38,6 +38,7 @@ export interface Spec extends TurboModule {
   downloadAndSilentInstallApk(url: string): Promise<boolean>;
   silentInstallAndLaunchApk(filePath: string): Promise<boolean>;
   downloadAndSilentInstallAndLaunchApk(url: string): Promise<boolean>;
+  systemSilentInstallApk(filePath: string): Promise<boolean>;
   
   // 文件管理方法
   getDownloadedFiles(): Promise<DownloadedFile[]>;

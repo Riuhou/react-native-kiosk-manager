@@ -430,6 +430,47 @@ export default function App() {
     }
   };
 
+  const handleSystemSilentInstallApk = async (filePath: string, fileName: string) => {
+    try {
+      console.log('=== 系统级静默安装APK ===');
+      console.log('文件路径:', filePath);
+      console.log('文件名:', fileName);
+      console.log('==================');
+
+      // 检查设备所有者权限
+      const isOwner = await KioskManager.isDeviceOwner();
+      if (!isOwner) {
+        Alert.alert(
+          '需要设备所有者权限',
+          '系统级静默安装需要设备所有者权限，请先设置设备所有者',
+          [
+            { text: '取消', style: 'cancel' },
+            { 
+              text: '去设置', 
+              onPress: async () => {
+                try {
+                  await KioskManager.requestDeviceAdmin();
+                } catch (error) {
+                  console.error('请求设备管理员权限失败:', error);
+                }
+              }
+            }
+          ]
+        );
+        return;
+      }
+
+      // 开始系统级静默安装
+      await KioskManager.systemSilentInstallApk(filePath);
+      
+      console.log('APK系统级静默安装启动成功');
+      Alert.alert('Success', `开始系统级静默安装 ${fileName}`);
+    } catch (error) {
+      console.error('系统级静默安装APK失败:', error);
+      Alert.alert('Error', `Failed to system silent install APK: ${error}`);
+    }
+  };
+
   const handleDownloadAndSilentInstall = async () => {
     if (!apkUrl.trim()) {
       Alert.alert('Error', 'Please enter a valid APK URL');
@@ -1054,6 +1095,17 @@ export default function App() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
+                        styles.systemInstallButton,
+                        isDarkMode && styles.darkSystemInstallButton,
+                      ]}
+                      onPress={() =>
+                        handleSystemSilentInstallApk(file.filePath, file.fileName)
+                      }
+                    >
+                      <Text style={styles.systemInstallButtonText}>系统级静默安装</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
                         styles.deleteButton,
                         isDarkMode && styles.darkDeleteButton,
                       ]}
@@ -1416,6 +1468,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#28a745',
   },
   autoLaunchButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  systemInstallButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#6f42c1',
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  darkSystemInstallButton: {
+    backgroundColor: '#6f42c1',
+  },
+  systemInstallButtonText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',

@@ -127,7 +127,7 @@ npm run setup-device-owner-windows
 
    ```bash
    # 将com.yourcompany.yourapp替换为您的实际包名
-   adb shell dpm set-device-owner com.yourcompany.yourapp/.DeviceAdminReceiver
+   adb shell dpm set-device-owner com.riuhou.kioskmanager/.DeviceAdminReceiver
    ```
 
 6. **验证设备所有者状态**

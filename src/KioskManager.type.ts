@@ -42,6 +42,7 @@ export interface KioskManagerType {
   downloadAndSilentInstallApk: (url: string) => Promise<boolean>;
   silentInstallAndLaunchApk: (filePath: string) => Promise<boolean>;
   downloadAndSilentInstallAndLaunchApk: (url: string) => Promise<boolean>;
+  systemSilentInstallApk: (filePath: string) => Promise<boolean>;
   
   // 事件监听器
   addDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;

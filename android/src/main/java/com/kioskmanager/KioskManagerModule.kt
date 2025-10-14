@@ -558,18 +558,28 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         Log.i("KioskManager", "目标包名: ${packageInfo.packageName}")
       }
       
-      // 设置安装参数，确保静默安装
-      // 注意：这些方法在较新的Android版本中可能不可用，我们使用基本设置
+      // 设置安装参数，确保完全静默安装
       try {
-        sessionParams.setInstallLocation(0) // 0 = INSTALL_LOCATION_AUTO
+        // 使用数字常量而不是可能不存在的常量
+        sessionParams.setInstallLocation(1) // 1 = INSTALL_LOCATION_INTERNAL_ONLY
       } catch (e: Exception) {
         Log.w("KioskManager", "setInstallLocation not available: ${e.message}")
       }
       
       try {
-        sessionParams.setInstallReason(0) // 0 = INSTALL_REASON_UNKNOWN
+        // 使用数字常量
+        sessionParams.setInstallReason(4) // 4 = INSTALL_REASON_DEVICE_RESTORE
       } catch (e: Exception) {
         Log.w("KioskManager", "setInstallReason not available: ${e.message}")
+      }
+      
+      // 添加额外的静默安装标志
+      try {
+        // 使用反射调用可能不存在的方法
+        val method = sessionParams.javaClass.getMethod("setInstallFlags", Int::class.java)
+        method.invoke(sessionParams, 2) // 2 = INSTALL_REPLACE_EXISTING
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallFlags not available: ${e.message}")
       }
       
       // 创建安装会话
@@ -715,18 +725,28 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       val sessionParams = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
       sessionParams.setAppPackageName(targetPackageName)
       
-      // 设置安装参数，确保静默安装
-      // 注意：这些方法在较新的Android版本中可能不可用，我们使用基本设置
+      // 设置安装参数，确保完全静默安装
       try {
-        sessionParams.setInstallLocation(0) // 0 = INSTALL_LOCATION_AUTO
+        // 使用数字常量而不是可能不存在的常量
+        sessionParams.setInstallLocation(1) // 1 = INSTALL_LOCATION_INTERNAL_ONLY
       } catch (e: Exception) {
         Log.w("KioskManager", "setInstallLocation not available: ${e.message}")
       }
       
       try {
-        sessionParams.setInstallReason(0) // 0 = INSTALL_REASON_UNKNOWN
+        // 使用数字常量
+        sessionParams.setInstallReason(4) // 4 = INSTALL_REASON_DEVICE_RESTORE
       } catch (e: Exception) {
         Log.w("KioskManager", "setInstallReason not available: ${e.message}")
+      }
+      
+      // 添加额外的静默安装标志
+      try {
+        // 使用反射调用可能不存在的方法
+        val method = sessionParams.javaClass.getMethod("setInstallFlags", Int::class.java)
+        method.invoke(sessionParams, 2) // 2 = INSTALL_REPLACE_EXISTING
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallFlags not available: ${e.message}")
       }
       
       // 创建安装会话
@@ -837,6 +857,73 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         promise.reject(message)
       }
     })
+  }
+
+  @ReactMethod
+  fun systemSilentInstallApk(filePath: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val apkFile = File(filePath)
+      
+      Log.i("KioskManager", "=== 开始系统级静默安装 ===")
+      Log.i("KioskManager", "APK文件路径: $filePath")
+      Log.i("KioskManager", "==================")
+      
+      if (!apkFile.exists()) {
+        promise.reject("E_SYSTEM_INSTALL_FAILED", "APK file not found: $filePath")
+        return
+      }
+      
+      // 检查设备管理员权限
+      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+      
+      if (!dpm.isDeviceOwnerApp(context.packageName)) {
+        Log.e("KioskManager", "App is not device owner, cannot perform system silent install")
+        promise.reject("E_NOT_DEVICE_OWNER", "App is not device owner. System silent install requires device owner privileges.")
+        return
+      }
+      
+      // 使用设备策略管理器进行系统级安装
+      try {
+        val packageInfo = context.packageManager.getPackageArchiveInfo(filePath, 0)
+        if (packageInfo != null) {
+          val targetPackageName = packageInfo.packageName
+          Log.i("KioskManager", "目标包名: $targetPackageName")
+          
+          // 使用设备策略管理器安装应用
+          val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
+          val apkUri = Uri.fromFile(apkFile)
+          val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+          
+          // 使用反射调用installSystemUpdate方法，因为参数可能在不同Android版本中不同
+          try {
+            val method = dpm.javaClass.getMethod("installSystemUpdate", 
+              ComponentName::class.java, Uri::class.java, java.util.concurrent.Executor::class.java)
+            method.invoke(dpm, adminComponent, apkUri, executor)
+          } catch (e: Exception) {
+            Log.w("KioskManager", "installSystemUpdate not available: ${e.message}")
+            // 如果系统级安装不可用，回退到普通静默安装
+            promise.reject("E_SYSTEM_INSTALL_NOT_AVAILABLE", "System install not available: ${e.message}")
+            return
+          }
+          
+          Log.i("KioskManager", "=== 系统级静默安装提交成功 ===")
+          Log.i("KioskManager", "目标包名: $targetPackageName")
+          Log.i("KioskManager", "==================")
+          
+          promise.resolve(true)
+        } else {
+          promise.reject("E_INVALID_APK", "Invalid APK file")
+        }
+      } catch (e: Exception) {
+        Log.e("KioskManager", "System silent install failed: ${e.message}")
+        promise.reject("E_SYSTEM_INSTALL_FAILED", "System silent install failed: ${e.message}")
+      }
+      
+    } catch (e: Exception) {
+      Log.e("KioskManager", "System silent install failed: ${e.message}")
+      promise.reject("E_SYSTEM_INSTALL_FAILED", "System silent install failed: ${e.message}")
+    }
   }
 
   private fun launchApp(packageName: String) {
