@@ -9,8 +9,9 @@ import {
   Dimensions,
   TouchableOpacity,
   StatusBar,
+  TextInput,
 } from 'react-native';
-import KioskManager from 'react-native-kiosk-manager';
+import KioskManager, { type DownloadResult } from 'react-native-kiosk-manager';
 
 export default function App() {
   const [bootAutoStart, setBootAutoStart] = useState<boolean | null>(null);
@@ -18,6 +19,9 @@ export default function App() {
   const [isLockTaskPackageSetup, setIsLockTaskPackageSetup] = useState<
     boolean | null
   >(null);
+  const [apkUrl, setApkUrl] = useState<string>('https://assets.driver-day.com/LATEST/apk/dd.apk');
+  const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(null);
+  const [isInstalling, setIsInstalling] = useState<boolean>(false);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
 
@@ -115,6 +119,74 @@ export default function App() {
       );
     } catch (error) {
       Alert.alert('Error', 'Failed to clear device owner');
+    }
+  };
+
+  // APK 更新相关函数
+  const handleDownloadApk = async () => {
+    if (!apkUrl.trim()) {
+      Alert.alert('Error', 'Please enter a valid APK URL');
+      return;
+    }
+
+    try {
+      const result = await KioskManager.downloadApk(apkUrl);
+      setDownloadResult(result);
+      Alert.alert('Success', `APK downloaded successfully!\nFile: ${result.fileName}\nSize: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`);
+    } catch (error) {
+      Alert.alert('Error', `Failed to download APK: ${error}`);
+    }
+  };
+
+  const handleInstallApk = async () => {
+    if (!downloadResult) {
+      Alert.alert('Error', 'No APK file to install');
+      return;
+    }
+
+    setIsInstalling(true);
+    try {
+      await KioskManager.installApk(downloadResult.filePath);
+      Alert.alert('Success', 'APK installation started');
+    } catch (error) {
+      Alert.alert('Error', `Failed to install APK: ${error}`);
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  const handleDownloadAndInstall = async () => {
+    if (!apkUrl.trim()) {
+      Alert.alert('Error', 'Please enter a valid APK URL');
+      return;
+    }
+
+    setIsInstalling(true);
+    try {
+      await KioskManager.downloadAndInstallApk(apkUrl);
+      Alert.alert('Success', 'APK download and installation started');
+    } catch (error) {
+      Alert.alert('Error', `Failed to download and install APK: ${error}`);
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  const handleCheckInstallPermission = async () => {
+    try {
+      const hasPermission = await KioskManager.checkInstallPermission();
+      Alert.alert('Install Permission', hasPermission ? 'Permission granted' : 'Permission required');
+    } catch (error) {
+      Alert.alert('Error', `Failed to check install permission: ${error}`);
+    }
+  };
+
+  const handleRequestInstallPermission = async () => {
+    try {
+      await KioskManager.requestInstallPermission();
+      Alert.alert('Success', 'Install permission request sent');
+    } catch (error) {
+      Alert.alert('Error', `Failed to request install permission: ${error}`);
     }
   };
 
@@ -355,6 +427,143 @@ export default function App() {
             </View>
           )}
         </View>
+
+        {/* APK 更新功能部分 */}
+        <View
+          style={[styles.section, isTablet && styles.tabletSection]}
+        >
+          <Text
+            style={[
+              styles.sectionTitle,
+              isDarkMode ? styles.darkText : styles.lightText,
+            ]}
+          >
+            APK 自动更新
+          </Text>
+
+          <View style={styles.inputContainer}>
+            <Text
+              style={[
+                styles.inputLabel,
+                isDarkMode ? styles.darkText : styles.lightText,
+              ]}
+            >
+              APK 下载链接:
+            </Text>
+            <TextInput
+              style={[
+                styles.textInput,
+                isDarkMode && styles.darkTextInput,
+              ]}
+              value={apkUrl}
+              onChangeText={setApkUrl}
+              placeholder="输入 APK 文件的 URL"
+              placeholderTextColor={isDarkMode ? '#666' : '#999'}
+              multiline
+            />
+          </View>
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                styles.primaryButton,
+                isDarkMode && styles.darkButton,
+                isTablet && styles.tabletActionButton,
+              ]}
+              onPress={handleDownloadApk}
+            >
+              <Text style={[styles.buttonText, styles.primaryButtonText]}>
+                下载 APK
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                styles.successButton,
+                isDarkMode && styles.darkButton,
+                isTablet && styles.tabletActionButton,
+                !downloadResult && styles.disabledButton,
+              ]}
+              onPress={handleInstallApk}
+              disabled={!downloadResult || isInstalling}
+            >
+              <Text style={[styles.buttonText, styles.successButtonText]}>
+                {isInstalling ? '安装中...' : '安装 APK'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.warningButton,
+              isDarkMode && styles.darkButton,
+              isTablet && styles.tabletActionButton,
+              isInstalling && styles.disabledButton,
+            ]}
+            onPress={handleDownloadAndInstall}
+            disabled={isInstalling}
+          >
+            <Text style={[styles.buttonText, styles.warningButtonText]}>
+              {isInstalling ? '处理中...' : '下载并安装'}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                styles.infoButton,
+                isDarkMode && styles.darkButton,
+                isTablet && styles.tabletActionButton,
+              ]}
+              onPress={handleCheckInstallPermission}
+            >
+              <Text style={[styles.buttonText, styles.infoButtonText]}>
+                检查安装权限
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                styles.infoButton,
+                isDarkMode && styles.darkButton,
+                isTablet && styles.tabletActionButton,
+              ]}
+              onPress={handleRequestInstallPermission}
+            >
+              <Text style={[styles.buttonText, styles.infoButtonText]}>
+                请求安装权限
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {downloadResult && (
+            <View
+              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
+            >
+              <Text
+                style={[
+                  styles.statusLabel,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                下载结果:
+              </Text>
+              <Text
+                style={[
+                  styles.statusValue,
+                  isDarkMode && styles.darkText,
+                ]}
+              >
+                {downloadResult.fileName} ({(downloadResult.fileSize / 1024 / 1024).toFixed(2)} MB)
+              </Text>
+            </View>
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -539,5 +748,55 @@ const styles = StyleSheet.create({
   statusDisabled: {
     backgroundColor: '#f8d7da',
     color: '#721c24',
+  },
+  
+  // APK 更新相关样式
+  section: {
+    marginTop: 30,
+    padding: 20,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  tabletSection: {
+    marginTop: 40,
+    padding: 30,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  darkTextInput: {
+    borderColor: '#555',
+    backgroundColor: '#333',
+    color: '#fff',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 12,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });

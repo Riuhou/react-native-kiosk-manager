@@ -12,6 +12,13 @@ const KioskManager: KioskManagerType = {
   requestDeviceAdmin: () => KioskManagerTurboModule?.requestDeviceAdmin(),
   clearDeviceOwner: () => KioskManagerTurboModule?.clearDeviceOwner(),
   isDeviceOwner: () => KioskManagerTurboModule?.isDeviceOwner(),
+  
+  // APK 更新相关方法
+  downloadApk: (url: string) => KioskManagerTurboModule?.downloadApk(url),
+  installApk: (filePath: string) => KioskManagerTurboModule?.installApk(filePath),
+  downloadAndInstallApk: (url: string) => KioskManagerTurboModule?.downloadAndInstallApk(url),
+  checkInstallPermission: () => KioskManagerTurboModule?.checkInstallPermission(),
+  requestInstallPermission: () => KioskManagerTurboModule?.requestInstallPermission(),
 };
 
 export default KioskManager;
