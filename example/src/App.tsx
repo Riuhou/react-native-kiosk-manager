@@ -188,35 +188,6 @@ export default function App() {
     }
   };
 
-  const handleInstallApk = async () => {
-    if (!downloadResult) {
-      Alert.alert('Error', 'No APK file to install');
-      return;
-    }
-
-    setIsInstalling(true);
-    try {
-      // 在控制台打印安装信息
-      console.log('=== 开始安装 ===');
-      console.log('安装文件路径:', downloadResult.filePath);
-      console.log('文件名:', downloadResult.fileName);
-      console.log('文件大小:', downloadResult.fileSize, '字节');
-      console.log('==================');
-
-      await KioskManager.installApk(downloadResult.filePath);
-
-      console.log('=== 安装启动成功 ===');
-      console.log('已启动系统安装界面');
-      console.log('==================');
-
-      Alert.alert('Success', 'APK installation started');
-    } catch (error) {
-      console.error('安装失败:', error);
-      Alert.alert('Error', `Failed to install APK: ${error}`);
-    } finally {
-      setIsInstalling(false);
-    }
-  };
 
   const handleDownloadAndInstall = async () => {
     if (!apkUrl.trim()) {
@@ -333,6 +304,47 @@ export default function App() {
     } catch (error) {
       console.error('清空文件失败:', error);
       Alert.alert('Error', `Failed to clear files: ${error}`);
+    }
+  };
+
+  const handleInstallApk = async (filePath: string, fileName: string) => {
+    try {
+      console.log('=== 安装APK ===');
+      console.log('文件路径:', filePath);
+      console.log('文件名:', fileName);
+      console.log('==================');
+
+      // 检查安装权限
+      const hasPermission = await KioskManager.checkInstallPermission();
+      if (!hasPermission) {
+        Alert.alert(
+          '需要安装权限',
+          '请先授予应用安装未知应用的权限',
+          [
+            { text: '取消', style: 'cancel' },
+            { 
+              text: '去设置', 
+              onPress: async () => {
+                try {
+                  await KioskManager.requestInstallPermission();
+                } catch (error) {
+                  console.error('请求安装权限失败:', error);
+                }
+              }
+            }
+          ]
+        );
+        return;
+      }
+
+      // 开始安装
+      await KioskManager.installApk(filePath);
+      
+      console.log('APK安装启动成功');
+      Alert.alert('Success', `开始安装 ${fileName}`);
+    } catch (error) {
+      console.error('安装APK失败:', error);
+      Alert.alert('Error', `Failed to install APK: ${error}`);
     }
   };
 
@@ -631,7 +643,11 @@ export default function App() {
                 isDarkMode && styles.darkButton,
                 !downloadResult && styles.disabledButton,
               ]}
-              onPress={handleInstallApk}
+              onPress={() => {
+                if (downloadResult) {
+                  handleInstallApk(downloadResult.filePath, downloadResult.fileName);
+                }
+              }}
               disabled={!downloadResult || isInstalling}
             >
               <Text
@@ -833,6 +849,17 @@ export default function App() {
                   </View>
 
                   <View style={styles.fileActions}>
+                    <TouchableOpacity
+                      style={[
+                        styles.installButton,
+                        isDarkMode && styles.darkInstallButton,
+                      ]}
+                      onPress={() =>
+                        handleInstallApk(file.filePath, file.fileName)
+                      }
+                    >
+                      <Text style={styles.installButtonText}>安装</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={[
                         styles.deleteButton,
@@ -1155,6 +1182,21 @@ const styles = StyleSheet.create({
   fileActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  installButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#28a745',
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  darkInstallButton: {
+    backgroundColor: '#28a745',
+  },
+  installButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   deleteButton: {
     paddingHorizontal: 12,

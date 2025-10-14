@@ -290,7 +290,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
       
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        intent.flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        intent.flags = intent.flags or Intent.FLAG_GRANT_READ_URI_PERMISSION
       }
       
       context.startActivity(intent)
