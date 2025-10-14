@@ -559,8 +559,18 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       }
       
       // 设置安装参数，确保静默安装
-      sessionParams.setInstallLocation(PackageInstaller.SessionParams.INSTALL_LOCATION_AUTO)
-      sessionParams.setInstallReason(PackageInstaller.SessionParams.INSTALL_REASON_DEVICE_RESTORE)
+      // 注意：这些方法在较新的Android版本中可能不可用，我们使用基本设置
+      try {
+        sessionParams.setInstallLocation(0) // 0 = INSTALL_LOCATION_AUTO
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallLocation not available: ${e.message}")
+      }
+      
+      try {
+        sessionParams.setInstallReason(0) // 0 = INSTALL_REASON_UNKNOWN
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallReason not available: ${e.message}")
+      }
       
       // 创建安装会话
       val sessionId = packageInstaller.createSession(sessionParams)
@@ -706,8 +716,18 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       sessionParams.setAppPackageName(targetPackageName)
       
       // 设置安装参数，确保静默安装
-      sessionParams.setInstallLocation(PackageInstaller.SessionParams.INSTALL_LOCATION_AUTO)
-      sessionParams.setInstallReason(PackageInstaller.SessionParams.INSTALL_REASON_DEVICE_RESTORE)
+      // 注意：这些方法在较新的Android版本中可能不可用，我们使用基本设置
+      try {
+        sessionParams.setInstallLocation(0) // 0 = INSTALL_LOCATION_AUTO
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallLocation not available: ${e.message}")
+      }
+      
+      try {
+        sessionParams.setInstallReason(0) // 0 = INSTALL_REASON_UNKNOWN
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallReason not available: ${e.message}")
+      }
       
       // 创建安装会话
       val sessionId = packageInstaller.createSession(sessionParams)
