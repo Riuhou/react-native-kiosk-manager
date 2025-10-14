@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 (2025-10-14)
+
+* 静默安装 ([4a1a5a6](https://github.com/Riuhou/react-native-kiosk-manager/commit/4a1a5a6))
+* 实现安装 ([0f7f422](https://github.com/Riuhou/react-native-kiosk-manager/commit/0f7f422))
+* 实现下载 ([73bd6b8](https://github.com/Riuhou/react-native-kiosk-manager/commit/73bd6b8))
+* 添加下载进度 ([3a4ad8e](https://github.com/Riuhou/react-native-kiosk-manager/commit/3a4ad8e))
+* 添加下载文件管理 ([85c91d6](https://github.com/Riuhou/react-native-kiosk-manager/commit/85c91d6))
+* disable pre-commit checks ([0a6ceeb](https://github.com/Riuhou/react-native-kiosk-manager/commit/0a6ceeb))
+* feat:update ui ([8b8eb5a](https://github.com/Riuhou/react-native-kiosk-manager/commit/8b8eb5a))
+* update ([0a26fe2](https://github.com/Riuhou/react-native-kiosk-manager/commit/0a26fe2))
+* feat: remove ios ([29e1428](https://github.com/Riuhou/react-native-kiosk-manager/commit/29e1428))
+* feat: update ([468ef2a](https://github.com/Riuhou/react-native-kiosk-manager/commit/468ef2a))
+
 ## 0.8.0 (2025-10-11)
 
 * feat: update ([468ef2a](https://github.com/Riuhou/react-native-kiosk-manager/commit/468ef2a))
