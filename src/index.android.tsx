@@ -80,6 +80,124 @@ const KioskManager: KioskManagerType = {
     return KioskManagerTurboModule.isDeviceOwner();
   },
   
+  // 亮度与音量控制（Android）
+  hasWriteSettingsPermission: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.hasWriteSettingsPermission();
+  },
+  requestWriteSettingsPermission: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.requestWriteSettingsPermission();
+  },
+  setSystemBrightness: (value: number) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    const v = Math.max(0, Math.min(255, Math.floor(value)));
+    return KioskManagerTurboModule.setSystemBrightness(v);
+  },
+  getSystemBrightness: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(0);
+    }
+    return KioskManagerTurboModule.getSystemBrightness();
+  },
+  setAppBrightness: (value: number) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return;
+    }
+    const v = Math.max(0, Math.min(1, value));
+    KioskManagerTurboModule.setAppBrightness(v);
+  },
+  resetAppBrightness: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return;
+    }
+    KioskManagerTurboModule.resetAppBrightness();
+  },
+  getAppBrightness: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(-1);
+    }
+    return KioskManagerTurboModule.getAppBrightness();
+  },
+  setVolume: (stream, value) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    const v = Math.max(0, Math.min(1, value));
+    return KioskManagerTurboModule.setVolume(stream, v);
+  },
+  getVolume: (stream) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(0);
+    }
+    return KioskManagerTurboModule.getVolume(stream);
+  },
+  getMaxVolume: (stream) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(0);
+    }
+    return KioskManagerTurboModule.getMaxVolume(stream);
+  },
+  setGlobalVolume: (value: number) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    const v = Math.max(0, Math.min(1, value));
+    return KioskManagerTurboModule.setGlobalVolume(v);
+  },
+  getGlobalVolume: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(0);
+    }
+    return KioskManagerTurboModule.getGlobalVolume();
+  },
+  setMute: (stream, muted) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.setMute(stream, !!muted);
+  },
+  isMuted: (stream) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.isMuted(stream);
+  },
+  setGlobalMute: (muted) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.setGlobalMute(!!muted);
+  },
+  isGlobalMuted: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.isGlobalMuted();
+  },
+  
   // APK 更新相关方法
   downloadApk: (url: string) => {
     if (!KioskManagerTurboModule) {

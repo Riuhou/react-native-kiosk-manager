@@ -26,6 +26,24 @@ export interface Spec extends TurboModule {
   clearDeviceOwner(): Promise<boolean>;
   isDeviceOwner(): Promise<boolean>;
   
+  // 亮度与音量控制（Android）
+  hasWriteSettingsPermission(): Promise<boolean>;
+  requestWriteSettingsPermission(): Promise<boolean>;
+  setSystemBrightness(value: number): Promise<boolean>;
+  getSystemBrightness(): Promise<number>;
+  setAppBrightness(value: number): void;
+  getAppBrightness(): Promise<number>;
+  resetAppBrightness(): void;
+  setVolume(stream: string, value: number): Promise<boolean>;
+  getVolume(stream: string): Promise<number>;
+  getMaxVolume(stream: string): Promise<number>;
+  setGlobalVolume(value: number): Promise<boolean>;
+  getGlobalVolume(): Promise<number>;
+  setMute(stream: string, muted: boolean): Promise<boolean>;
+  isMuted(stream: string): Promise<boolean>;
+  setGlobalMute(muted: boolean): Promise<boolean>;
+  isGlobalMuted(): Promise<boolean>;
+  
   // APK 更新相关方法
   downloadApk(url: string): Promise<DownloadResult>;
   installApk(filePath: string): Promise<boolean>;

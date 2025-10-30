@@ -38,10 +38,35 @@ export default function App() {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
 
+  // 亮度/音量演示相关状态
+  const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
+  const [systemBrightness, setSystemBrightness] = useState<number | null>(null); // 0-255
+  const [appBrightness, setAppBrightness] = useState<number | null>(null); // -1 或 0-1
+  const audioStreams: Array<{
+    key: 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf';
+    label: string;
+  }> = [
+    { key: 'music', label: '媒体(music)' },
+    { key: 'ring', label: '铃声(ring)' },
+    { key: 'alarm', label: '闹钟(alarm)' },
+    { key: 'notification', label: '通知(notification)' },
+    { key: 'system', label: '系统(system)' },
+    { key: 'voice_call', label: '通话(voice_call)' },
+    { key: 'dtmf', label: '拨号(dtmf)' },
+  ];
+  const [volumes, setVolumes] = useState<Record<string, number>>({}); // 0-1 比例
+  const [globalVolume, setGlobalVolume] = useState<number | null>(null);
+  const [mutedMap, setMutedMap] = useState<Record<string, boolean>>({});
+  const [globalMuted, setGlobalMuted] = useState<boolean | null>(null);
+
   // 获取屏幕尺寸用于响应式设计
   const { width, height } = Dimensions.get('window');
   const isTablet = width >= 768;
   const isLandscape = width > height;
+  
+  // 选项卡
+  type TabKey = 'kiosk' | 'update' | 'files' | 'av';
+  const [activeTab, setActiveTab] = useState<TabKey>('kiosk');
 
   // 设置下载进度监听器
   useEffect(() => {
@@ -55,6 +80,130 @@ export default function App() {
       KioskManager.removeDownloadProgressListener(handleProgress);
     };
   }, []);
+
+  // 初始化读取亮度与音量
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const has = await KioskManager.hasWriteSettingsPermission();
+        setHasWriteSettings(has);
+      } catch {}
+      try {
+        const sb = await KioskManager.getSystemBrightness();
+        setSystemBrightness(sb);
+      } catch {}
+      try {
+        const ab = await KioskManager.getAppBrightness();
+        setAppBrightness(ab);
+      } catch {}
+      try {
+        const entries = await Promise.all(
+          audioStreams.map(async (s) => {
+            try {
+              const v = await KioskManager.getVolume(s.key);
+              return [s.key, v] as const;
+            } catch {
+              return [s.key, 0] as const;
+            }
+          })
+        );
+        const map: Record<string, number> = {};
+        entries.forEach(([k, v]) => (map[k] = v));
+        setVolumes(map);
+      } catch {}
+      try {
+        const gv = await KioskManager.getGlobalVolume();
+        setGlobalVolume(gv);
+      } catch {}
+      try {
+        const mutes = await Promise.all(
+          audioStreams.map(async (s) => {
+            try {
+              const m = await KioskManager.isMuted(s.key);
+              return [s.key, !!m] as const;
+            } catch {
+              return [s.key, false] as const;
+            }
+          })
+        );
+        const mm: Record<string, boolean> = {};
+        mutes.forEach(([k, v]) => (mm[k] = v));
+        setMutedMap(mm);
+      } catch {}
+      try {
+        const gm = await KioskManager.isGlobalMuted();
+        setGlobalMuted(!!gm);
+      } catch {}
+    };
+    init();
+  }, []);
+
+  // 亮度与音量操作
+  const handleRequestWriteSettings = async () => {
+    try {
+      await KioskManager.requestWriteSettingsPermission();
+      const has = await KioskManager.hasWriteSettingsPermission();
+      setHasWriteSettings(has);
+    } catch (e) {
+      Alert.alert('Error', '请求系统写入设置权限失败');
+    }
+  };
+
+  const handleSetSystemBrightness = async (v: number) => {
+    try {
+      const clamped = Math.max(0, Math.min(255, Math.floor(v)));
+      const ok = await KioskManager.setSystemBrightness(clamped);
+      if (ok) setSystemBrightness(clamped);
+      else Alert.alert('Error', '设置系统亮度失败');
+    } catch (e) {
+      Alert.alert('Error', '设置系统亮度失败');
+    }
+  };
+
+  const handleSetAppBrightness = (v: number) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    try {
+      KioskManager.setAppBrightness(clamped);
+      setAppBrightness(clamped);
+    } catch (e) {
+      Alert.alert('Error', '设置应用亮度失败');
+    }
+  };
+
+  const handleSetVolume = async (
+    stream: 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf',
+    v: number
+  ) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    try {
+      await KioskManager.setVolume(stream, clamped);
+      setVolumes((prev) => ({ ...prev, [stream]: clamped }));
+    } catch (e) {
+      Alert.alert('Error', `设置音量失败: ${stream}`);
+    }
+  };
+
+  const handleToggleMute = async (
+    stream: 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf'
+  ) => {
+    try {
+      const target = !(mutedMap[stream] ?? false);
+      await KioskManager.setMute(stream, target);
+      setMutedMap((prev) => ({ ...prev, [stream]: target }));
+    } catch (e) {
+      Alert.alert('Error', `设置静音失败: ${stream}`);
+    }
+  };
+
+  const handleToggleGlobalMute = async () => {
+    try {
+      const target = !globalMuted;
+      await KioskManager.setGlobalMute(target);
+      setGlobalMuted(target);
+    } catch (e) {
+      Alert.alert('Error', '设置全局静音失败');
+    }
+  };
 
   const handleStartKiosk = () => {
     KioskManager.startKiosk();
@@ -561,7 +710,40 @@ export default function App() {
             {isLandscape ? '横屏' : '竖屏'}
           </Text>
         </View>
+        {/* 顶部 Tab */}
+        <View style={[styles.tabBar, isDarkMode ? styles.darkTabBar : styles.lightTabBar]}>
+          {[
+            { key: 'kiosk', label: '基础控制' },
+            { key: 'update', label: 'APK 更新' },
+            { key: 'files', label: '下载管理' },
+            { key: 'av', label: '亮度与音量' },
+          ].map((t: any) => (
+            <TouchableOpacity
+              key={t.key}
+              style={[
+                styles.tabButton,
+                activeTab === t.key && styles.activeTabButton,
+              ]}
+              onPress={() => setActiveTab(t.key)}
+            >
+              <Text
+                style={[
+                  styles.tabButtonText,
+                  activeTab === t.key
+                    ? styles.activeTabButtonText
+                    : isDarkMode
+                    ? styles.darkText
+                    : styles.lightText,
+                ]}
+              >
+                {t.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
+        {activeTab === 'kiosk' && (
+        <>
         <View style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}>
           <TouchableOpacity
             style={[
@@ -762,8 +944,11 @@ export default function App() {
             </View>
           )}
         </View>
+        </>
+        )}
 
         {/* APK 更新功能部分 */}
+        {activeTab === 'update' && (
         <View style={[styles.section, isTablet && styles.tabletSection]}>
           <Text
             style={[
@@ -966,8 +1151,185 @@ export default function App() {
             </View>
           )}
         </View>
+        )}
 
+        {/* 亮度与音量控制 */}
+        {activeTab === 'av' && (
+        <View style={[styles.section, isTablet && styles.tabletSection]}>
+          <Text
+            style={[
+              styles.sectionTitle,
+              isDarkMode ? styles.darkText : styles.lightText,
+            ]}
+          >
+            亮度与音量控制（Android）
+          </Text>
+
+          {/* 系统亮度权限与设置 */}
+          <View style={styles.buttonGrid}>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
+              onPress={async () => {
+                try {
+                  const has = await KioskManager.hasWriteSettingsPermission();
+                  setHasWriteSettings(has);
+                  Alert.alert('WRITE_SETTINGS', has ? '已授权' : '未授权');
+                } catch {
+                  Alert.alert('Error', '检查权限失败');
+                }
+              }}
+            >
+              <Text style={[styles.compactButtonText, styles.infoButtonText]}>检查系统写入权限</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
+              onPress={handleRequestWriteSettings}
+            >
+              <Text style={[styles.compactButtonText, styles.warningButtonText]}>请求系统写入权限</Text>
+            </TouchableOpacity>
+            {hasWriteSettings !== null && (
+              <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}> 
+                <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>权限状态</Text>
+                <Text style={[styles.statusValue, hasWriteSettings ? styles.statusEnabled : styles.statusDisabled, isDarkMode && styles.darkText]}>
+                  {hasWriteSettings ? '已授权' : '未授权'}
+                </Text>
+              </View>
+            )}
+          </View>
+
+            <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
+              onPress={() => handleSetSystemBrightness(50)}
+            >
+              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>系统亮度 50</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
+              onPress={() => handleSetSystemBrightness(128)}
+            >
+              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>系统亮度 128</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
+              onPress={() => handleSetSystemBrightness(255)}
+            >
+              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>系统亮度 255</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>系统亮度(0-255):</Text>
+            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{systemBrightness ?? '-'}</Text>
+          </View>
+
+          {/* 应用亮度 */}
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.primaryButton, isDarkMode && styles.darkButton]}
+              onPress={() => handleSetAppBrightness(0)}
+            >
+              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>应用亮度 0</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.primaryButton, isDarkMode && styles.darkButton]}
+              onPress={() => handleSetAppBrightness(0.5)}
+            >
+              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>应用亮度 0.5</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.primaryButton, isDarkMode && styles.darkButton]}
+              onPress={() => handleSetAppBrightness(1)}
+            >
+              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>应用亮度 1</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
+              onPress={() => { try { KioskManager.resetAppBrightness(); setAppBrightness(-1); } catch {} }}
+            >
+              <Text style={[styles.compactButtonText, styles.warningButtonText]}>恢复系统控制</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>应用亮度(0-1或-1):</Text>
+            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{appBrightness ?? '-'}</Text>
+          </View>
+
+          {/* 全局音量便捷操作 */}
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.successButton, isDarkMode && styles.darkButton]}
+              onPress={async () => { await KioskManager.setGlobalVolume(0); setGlobalVolume(0); }}
+            >
+              <Text style={[styles.compactButtonText, styles.successButtonText]}>全局音量 0</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.successButton, isDarkMode && styles.darkButton]}
+              onPress={async () => { await KioskManager.setGlobalVolume(0.5); const v = await KioskManager.getGlobalVolume(); setGlobalVolume(v); }}
+            >
+              <Text style={[styles.compactButtonText, styles.successButtonText]}>全局音量 0.5</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.successButton, isDarkMode && styles.darkButton]}
+              onPress={async () => { await KioskManager.setGlobalVolume(1); setGlobalVolume(1); }}
+            >
+              <Text style={[styles.compactButtonText, styles.successButtonText]}>全局音量 1</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
+              onPress={handleToggleGlobalMute}
+            >
+              <Text style={[styles.compactButtonText, styles.warningButtonText]}>{globalMuted ? '取消全局静音' : '全局静音'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>全局音量(0-1):</Text>
+            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{globalVolume?.toFixed(2) ?? '-'}</Text>
+          </View>
+
+          {/* 各音频流音量 */}
+          {audioStreams.map((s) => (
+            <View key={s.key} style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
+                onPress={() => handleSetVolume(s.key, Math.max(0, (volumes[s.key] ?? 0) - 0.1))}
+              >
+                <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} -</Text>
+              </TouchableOpacity>
+              <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}>
+                <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>
+                  {s.label} 音量:
+                </Text>
+                <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
+                  {(volumes[s.key] ?? 0).toFixed(2)}
+                </Text>
+              <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
+                {mutedMap[s.key] ? '（已静音）' : ''}
+              </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
+                onPress={() => handleSetVolume(s.key, Math.min(1, (volumes[s.key] ?? 0) + 0.1))}
+              >
+                <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} +</Text>
+              </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
+              onPress={() => handleToggleMute(s.key)}
+            >
+              <Text style={[styles.compactButtonText, styles.warningButtonText]}>
+                {mutedMap[s.key] ? '取消静音' : '静音'}
+              </Text>
+            </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+        )}
         {/* 文件管理部分 */}
+        {activeTab === 'files' && (
         <View style={[styles.section, isTablet && styles.tabletSection]}>
           <Text
             style={[
@@ -1134,6 +1496,7 @@ export default function App() {
             </View>
           )}
         </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -1551,5 +1914,36 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.5,
+  },
+  // Tabs
+  tabBar: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    padding: 6,
+    marginBottom: 16,
+    gap: 8,
+  },
+  lightTabBar: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  darkTabBar: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeTabButton: {
+    backgroundColor: '#007AFF',
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  activeTabButtonText: {
+    color: '#ffffff',
   },
 });

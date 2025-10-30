@@ -10,6 +10,9 @@
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
   <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
+  <!-- 亮度与音量控制相关权限 -->
+  <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
   <application>
     <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">

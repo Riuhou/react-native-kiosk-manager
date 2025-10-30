@@ -30,6 +30,8 @@ import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import android.content.IntentSender
+import android.media.AudioManager
+import kotlin.math.roundToInt
 
 class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -45,6 +47,320 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       if (am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE) {
         activity.startLockTask()
       }
+    }
+  }
+
+  // === 屏幕亮度与音量控制 ===
+
+  @ReactMethod
+  fun hasWriteSettingsPermission(promise: Promise) {
+    try {
+      val has = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        Settings.System.canWrite(reactApplicationContext)
+      } else {
+        true
+      }
+      promise.resolve(has)
+    } catch (e: Exception) {
+      promise.reject("E_CHECK_FAILED", "Failed to check WRITE_SETTINGS: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun requestWriteSettingsPermission(promise: Promise) {
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val activity = reactContext.currentActivity
+        if (activity == null) {
+          promise.reject("E_NO_ACTIVITY", "No current activity")
+          return
+        }
+        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+        intent.data = Uri.parse("package:${reactContext.packageName}")
+        activity.startActivity(intent)
+        promise.resolve(true)
+      } else {
+        promise.resolve(true)
+      }
+    } catch (e: Exception) {
+      promise.reject("E_REQUEST_FAILED", "Failed to request WRITE_SETTINGS: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun setSystemBrightness(value: Int, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(context)) {
+        promise.reject("E_PERMISSION", "WRITE_SETTINGS permission not granted")
+        return
+      }
+      val clamped = value.coerceIn(0, 255)
+      val ok = Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, clamped)
+      promise.resolve(ok)
+    } catch (e: Exception) {
+      promise.reject("E_BRIGHTNESS_FAILED", "Failed to set system brightness: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun getSystemBrightness(promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val current = Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 125)
+      promise.resolve(current)
+    } catch (e: Exception) {
+      promise.reject("E_BRIGHTNESS_FAILED", "Failed to get system brightness: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun setAppBrightness(value: Double) {
+    val activity = reactContext.currentActivity ?: return
+    val clamped = value.coerceIn(0.0, 1.0).toFloat()
+    activity.runOnUiThread {
+      val params = activity.window.attributes
+      params.screenBrightness = clamped
+      activity.window.attributes = params
+    }
+  }
+
+  @ReactMethod
+  fun resetAppBrightness() {
+    val activity = reactContext.currentActivity ?: return
+    activity.runOnUiThread {
+      val params = activity.window.attributes
+      params.screenBrightness = -1f // 跟随系统亮度
+      activity.window.attributes = params
+    }
+  }
+
+  @ReactMethod
+  fun getAppBrightness(promise: Promise) {
+    try {
+      val activity = reactContext.currentActivity
+      if (activity == null) {
+        promise.reject("E_NO_ACTIVITY", "No current activity")
+        return
+      }
+      val v = activity.window.attributes.screenBrightness
+      // -1 代表遵循系统亮度
+      promise.resolve(v.toDouble())
+    } catch (e: Exception) {
+      promise.reject("E_BRIGHTNESS_FAILED", "Failed to get app brightness: ${e.message}")
+    }
+  }
+
+  private fun mapStream(stream: String): Int {
+    return when (stream.lowercase()) {
+      "music" -> AudioManager.STREAM_MUSIC
+      "ring" -> AudioManager.STREAM_RING
+      "alarm" -> AudioManager.STREAM_ALARM
+      "notification" -> AudioManager.STREAM_NOTIFICATION
+      "system" -> AudioManager.STREAM_SYSTEM
+      "voice_call" -> AudioManager.STREAM_VOICE_CALL
+      "dtmf" -> AudioManager.STREAM_DTMF
+      else -> AudioManager.STREAM_MUSIC
+    }
+  }
+
+  @ReactMethod
+  fun setVolume(stream: String, value: Double, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streamType = mapStream(stream)
+      val max = am.getStreamMaxVolume(streamType)
+      val index = (value.coerceIn(0.0, 1.0) * max).roundToInt()
+      am.setStreamVolume(streamType, index, 0)
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_VOLUME_FAILED", "Failed to set volume: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun getVolume(stream: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streamType = mapStream(stream)
+      val current = am.getStreamVolume(streamType)
+      val max = am.getStreamMaxVolume(streamType)
+      val ratio = if (max > 0) current.toDouble() / max.toDouble() else 0.0
+      promise.resolve(ratio)
+    } catch (e: Exception) {
+      promise.reject("E_VOLUME_FAILED", "Failed to get volume: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun getMaxVolume(stream: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streamType = mapStream(stream)
+      val max = am.getStreamMaxVolume(streamType)
+      promise.resolve(max)
+    } catch (e: Exception) {
+      promise.reject("E_VOLUME_FAILED", "Failed to get max volume: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun setGlobalVolume(value: Double, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val clamped = value.coerceIn(0.0, 1.0)
+      val streams = listOf(
+        AudioManager.STREAM_MUSIC,
+        AudioManager.STREAM_RING,
+        AudioManager.STREAM_ALARM,
+        AudioManager.STREAM_NOTIFICATION,
+        AudioManager.STREAM_SYSTEM,
+        AudioManager.STREAM_VOICE_CALL,
+        AudioManager.STREAM_DTMF
+      )
+      streams.forEach { st ->
+        val max = am.getStreamMaxVolume(st)
+        val index = (clamped * max).roundToInt()
+        am.setStreamVolume(st, index, 0)
+      }
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_VOLUME_FAILED", "Failed to set global volume: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun getGlobalVolume(promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streams = listOf(
+        AudioManager.STREAM_MUSIC,
+        AudioManager.STREAM_RING,
+        AudioManager.STREAM_ALARM,
+        AudioManager.STREAM_NOTIFICATION,
+        AudioManager.STREAM_SYSTEM,
+        AudioManager.STREAM_VOICE_CALL,
+        AudioManager.STREAM_DTMF
+      )
+      var sum = 0.0
+      var count = 0
+      streams.forEach { st ->
+        val max = am.getStreamMaxVolume(st)
+        if (max > 0) {
+          val cur = am.getStreamVolume(st)
+          sum += cur.toDouble() / max.toDouble()
+          count++
+        }
+      }
+      val avg = if (count > 0) sum / count else 0.0
+      promise.resolve(avg)
+    } catch (e: Exception) {
+      promise.reject("E_VOLUME_FAILED", "Failed to get global volume: ${e.message}")
+    }
+  }
+
+  // === 静音控制 ===
+  @ReactMethod
+  fun setMute(stream: String, muted: Boolean, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streamType = mapStream(stream)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (muted) {
+          am.adjustStreamVolume(streamType, AudioManager.ADJUST_MUTE, 0)
+        } else {
+          am.adjustStreamVolume(streamType, AudioManager.ADJUST_UNMUTE, 0)
+        }
+      } else {
+        @Suppress("DEPRECATION")
+        am.setStreamMute(streamType, muted)
+      }
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_MUTE_FAILED", "Failed to set mute: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun isMuted(stream: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streamType = mapStream(stream)
+      val muted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        am.isStreamMute(streamType)
+      } else {
+        // 低版本无直接API，使用音量为0作为近似判断
+        am.getStreamVolume(streamType) == 0
+      }
+      promise.resolve(muted)
+    } catch (e: Exception) {
+      promise.reject("E_MUTE_FAILED", "Failed to get mute state: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun setGlobalMute(muted: Boolean, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streams = listOf(
+        AudioManager.STREAM_MUSIC,
+        AudioManager.STREAM_RING,
+        AudioManager.STREAM_ALARM,
+        AudioManager.STREAM_NOTIFICATION,
+        AudioManager.STREAM_SYSTEM,
+        AudioManager.STREAM_VOICE_CALL,
+        AudioManager.STREAM_DTMF
+      )
+      streams.forEach { st ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          if (muted) {
+            am.adjustStreamVolume(st, AudioManager.ADJUST_MUTE, 0)
+          } else {
+            am.adjustStreamVolume(st, AudioManager.ADJUST_UNMUTE, 0)
+          }
+        } else {
+          @Suppress("DEPRECATION")
+          am.setStreamMute(st, muted)
+        }
+      }
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_MUTE_FAILED", "Failed to set global mute: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun isGlobalMuted(promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val streams = listOf(
+        AudioManager.STREAM_MUSIC,
+        AudioManager.STREAM_RING,
+        AudioManager.STREAM_ALARM,
+        AudioManager.STREAM_NOTIFICATION,
+        AudioManager.STREAM_SYSTEM,
+        AudioManager.STREAM_VOICE_CALL,
+        AudioManager.STREAM_DTMF
+      )
+      val allMuted = streams.all { st ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          am.isStreamMute(st)
+        } else {
+          am.getStreamVolume(st) == 0
+        }
+      }
+      promise.resolve(allMuted)
+    } catch (e: Exception) {
+      promise.reject("E_MUTE_FAILED", "Failed to get global mute state: ${e.message}")
     }
   }
 
