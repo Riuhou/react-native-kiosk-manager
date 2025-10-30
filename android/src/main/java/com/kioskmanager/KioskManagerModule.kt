@@ -31,6 +31,7 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import android.content.IntentSender
 import android.media.AudioManager
+import android.app.NotificationManager
 import kotlin.math.roundToInt
 
 class KioskManagerModule(private val reactContext: ReactApplicationContext) :
@@ -361,6 +362,84 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       promise.resolve(allMuted)
     } catch (e: Exception) {
       promise.reject("E_MUTE_FAILED", "Failed to get global mute state: ${e.message}")
+    }
+  }
+
+  // === 系统铃声模式（类似点击系统音量图标） ===
+  @ReactMethod
+  fun getRingerMode(promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val mode = am.ringerMode // 0: silent, 1: vibrate, 2: normal
+      val modeStr = when (mode) {
+        AudioManager.RINGER_MODE_SILENT -> "silent"
+        AudioManager.RINGER_MODE_VIBRATE -> "vibrate"
+        else -> "normal"
+      }
+      promise.resolve(modeStr)
+    } catch (e: Exception) {
+      promise.reject("E_RINGER_FAILED", "Failed to get ringer mode: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun setRingerMode(mode: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+      // Android 6.0+ 某些机型在切换到静音/震动时需要免打扰权限
+      val target = when (mode.lowercase()) {
+        "silent" -> AudioManager.RINGER_MODE_SILENT
+        "vibrate" -> AudioManager.RINGER_MODE_VIBRATE
+        else -> AudioManager.RINGER_MODE_NORMAL
+      }
+
+      if ((target == AudioManager.RINGER_MODE_SILENT || target == AudioManager.RINGER_MODE_VIBRATE)
+        && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+        && !nm.isNotificationPolicyAccessGranted) {
+        promise.reject("E_PERMISSION", "Notification policy access not granted")
+        return
+      }
+
+      am.ringerMode = target
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_RINGER_FAILED", "Failed to set ringer mode: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun hasNotificationPolicyAccess(promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) nm.isNotificationPolicyAccessGranted else true
+      promise.resolve(granted)
+    } catch (e: Exception) {
+      promise.reject("E_CHECK_FAILED", "Failed to check notification policy access: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun requestNotificationPolicyAccess(promise: Promise) {
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val activity = reactContext.currentActivity
+        if (activity == null) {
+          promise.reject("E_NO_ACTIVITY", "No current activity")
+          return
+        }
+        val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+        activity.startActivity(intent)
+        promise.resolve(true)
+      } else {
+        promise.resolve(true)
+      }
+    } catch (e: Exception) {
+      promise.reject("E_REQUEST_FAILED", "Failed to request notification policy access: ${e.message}")
     }
   }
 

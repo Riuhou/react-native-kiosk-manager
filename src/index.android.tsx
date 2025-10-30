@@ -197,6 +197,34 @@ const KioskManager: KioskManagerType = {
     }
     return KioskManagerTurboModule.isGlobalMuted();
   },
+  getRingerMode: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve('normal');
+    }
+    return KioskManagerTurboModule.getRingerMode();
+  },
+  setRingerMode: (mode) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.setRingerMode(mode);
+  },
+  hasNotificationPolicyAccess: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.hasNotificationPolicyAccess();
+  },
+  requestNotificationPolicyAccess: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.requestNotificationPolicyAccess();
+  },
   
   // APK 更新相关方法
   downloadApk: (url: string) => {

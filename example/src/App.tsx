@@ -58,6 +58,8 @@ export default function App() {
   const [globalVolume, setGlobalVolume] = useState<number | null>(null);
   const [mutedMap, setMutedMap] = useState<Record<string, boolean>>({});
   const [globalMuted, setGlobalMuted] = useState<boolean | null>(null);
+  const [ringerMode, setRingerMode] = useState<'silent' | 'vibrate' | 'normal' | null>(null);
+  const [hasDndAccess, setHasDndAccess] = useState<boolean | null>(null);
 
   // 获取屏幕尺寸用于响应式设计
   const { width, height } = Dimensions.get('window');
@@ -134,6 +136,14 @@ export default function App() {
         const gm = await KioskManager.isGlobalMuted();
         setGlobalMuted(!!gm);
       } catch {}
+      try {
+        const rm = await KioskManager.getRingerMode();
+        setRingerMode(rm);
+      } catch {}
+      try {
+        const dnd = await KioskManager.hasNotificationPolicyAccess();
+        setHasDndAccess(dnd);
+      } catch {}
     };
     init();
   }, []);
@@ -202,6 +212,27 @@ export default function App() {
       setGlobalMuted(target);
     } catch (e) {
       Alert.alert('Error', '设置全局静音失败');
+    }
+  };
+
+  const handleToggleSystemMute = async () => {
+    try {
+      const current = (await KioskManager.getRingerMode()) as 'silent' | 'vibrate' | 'normal';
+      if (current === 'normal') {
+        const granted = await KioskManager.hasNotificationPolicyAccess();
+        if (!granted) {
+          await KioskManager.requestNotificationPolicyAccess();
+          Alert.alert('提示', '请在设置中授予“免打扰权限”，返回应用后再次点击');
+          return;
+        }
+        await KioskManager.setRingerMode('silent');
+        setRingerMode('silent');
+      } else {
+        await KioskManager.setRingerMode('normal');
+        setRingerMode('normal');
+      }
+    } catch (e) {
+      Alert.alert('Error', '切换系统静音失败');
     }
   };
 
@@ -978,6 +1009,15 @@ export default function App() {
             />
           </View>
 
+          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}>
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>系统铃声模式:</Text>
+            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{ringerMode ?? '-'}</Text>
+          </View>
+          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}>
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>免打扰权限:</Text>
+            <Text style={[styles.statusValue, (hasDndAccess ? styles.statusEnabled : styles.statusDisabled), isDarkMode && styles.darkText]}>{hasDndAccess ? '已授权' : '未授权'}</Text>
+          </View>
+
           <View
             style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
           >
@@ -1282,6 +1322,14 @@ export default function App() {
               onPress={handleToggleGlobalMute}
             >
               <Text style={[styles.compactButtonText, styles.warningButtonText]}>{globalMuted ? '取消全局静音' : '全局静音'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
+              onPress={handleToggleSystemMute}
+            >
+              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>
+                {ringerMode === 'silent' ? '系统静音：开（点我关闭）' : '系统静音：关（点我开启）'}
+              </Text>
             </TouchableOpacity>
           </View>
 

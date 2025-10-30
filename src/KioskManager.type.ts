@@ -47,6 +47,11 @@ export interface KioskManagerType {
   isMuted: (stream: 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf') => Promise<boolean>;
   setGlobalMute: (muted: boolean) => Promise<boolean>;
   isGlobalMuted: () => Promise<boolean>;
+  // 系统铃声模式与免打扰
+  getRingerMode: () => Promise<'silent' | 'vibrate' | 'normal'>;
+  setRingerMode: (mode: 'silent' | 'vibrate' | 'normal') => Promise<boolean>;
+  hasNotificationPolicyAccess: () => Promise<boolean>;
+  requestNotificationPolicyAccess: () => Promise<boolean>;
   
   // APK 更新相关方法
   downloadApk: (url: string) => Promise<DownloadResult>;
