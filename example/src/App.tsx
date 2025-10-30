@@ -60,6 +60,7 @@ export default function App() {
   const [globalMuted, setGlobalMuted] = useState<boolean | null>(null);
   const [ringerMode, setRingerMode] = useState<'silent' | 'vibrate' | 'normal' | null>(null);
   const [hasDndAccess, setHasDndAccess] = useState<boolean | null>(null);
+  const [streamsOpen, setStreamsOpen] = useState<boolean>(false);
 
   // 获取屏幕尺寸用于响应式设计
   const { width, height } = Dimensions.get('window');
@@ -146,6 +147,28 @@ export default function App() {
       } catch {}
     };
     init();
+    // 启动系统亮度/音量观察
+    try { KioskManager.startObservingSystemAv(); } catch {}
+
+    // 订阅系统事件
+    const onBrightness = (v: number) => { setSystemBrightness(v); };
+    const onVolume = (d: { stream: string; index: number; max: number; value: number }) => {
+      setVolumes((prev) => ({ ...prev, [d.stream]: Math.max(0, Math.min(1, d.value)) }));
+    };
+    const onGlobalVolume = (v: number) => { setGlobalVolume(Math.max(0, Math.min(1, v))); };
+    const onRinger = (m: 'silent' | 'vibrate' | 'normal') => { setRingerMode(m); };
+    KioskManager.addSystemBrightnessListener(onBrightness);
+    KioskManager.addVolumeChangedListener(onVolume);
+    KioskManager.addGlobalVolumeChangedListener(onGlobalVolume);
+    KioskManager.addRingerModeChangedListener(onRinger);
+
+    return () => {
+      try { KioskManager.stopObservingSystemAv(); } catch {}
+      KioskManager.removeSystemBrightnessListener(onBrightness);
+      KioskManager.removeVolumeChangedListener(onVolume);
+      KioskManager.removeGlobalVolumeChangedListener(onGlobalVolume);
+      KioskManager.removeRingerModeChangedListener(onRinger);
+    };
   }, []);
 
   // 亮度与音量操作
@@ -1238,6 +1261,11 @@ export default function App() {
             )}
           </View>
 
+          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>系统亮度(0-255):</Text>
+            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{systemBrightness ?? '-'}</Text>
+          </View>
+
             <View style={styles.buttonRow}>
             <TouchableOpacity
               style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
@@ -1259,12 +1287,11 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>系统亮度(0-255):</Text>
-            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{systemBrightness ?? '-'}</Text>
-          </View>
-
           {/* 应用亮度 */}
+          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>应用亮度(0-1或-1):</Text>
+            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{appBrightness ?? '-'}</Text>
+          </View>
           <View style={styles.buttonRow}>
             <TouchableOpacity
               style={[styles.compactButton, styles.primaryButton, isDarkMode && styles.darkButton]}
@@ -1292,12 +1319,12 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
+          {/* 全局音量便捷操作 */}
           <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>应用亮度(0-1或-1):</Text>
-            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{appBrightness ?? '-'}</Text>
+            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>全局音量(0-1):</Text>
+            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{globalVolume?.toFixed(2) ?? '-'}</Text>
           </View>
 
-          {/* 全局音量便捷操作 */}
           <View style={styles.buttonRow}>
             <TouchableOpacity
               style={[styles.compactButton, styles.successButton, isDarkMode && styles.darkButton]}
@@ -1333,47 +1360,64 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>全局音量(0-1):</Text>
-            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{globalVolume?.toFixed(2) ?? '-'}</Text>
-          </View>
+          
 
-          {/* 各音频流音量 */}
-          {audioStreams.map((s) => (
-            <View key={s.key} style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
-                onPress={() => handleSetVolume(s.key, Math.max(0, (volumes[s.key] ?? 0) - 0.1))}
-              >
-                <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} -</Text>
-              </TouchableOpacity>
-              <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}>
-                <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>
-                  {s.label} 音量:
-                </Text>
-                <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
-                  {(volumes[s.key] ?? 0).toFixed(2)}
-                </Text>
-              <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
-                {mutedMap[s.key] ? '（已静音）' : ''}
+          {/* 各音频流音量（Accordion） */}
+          <TouchableOpacity
+            style={[styles.buttonRow]}
+            onPress={() => setStreamsOpen(!streamsOpen)}
+          >
+            <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}> 
+              <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>
+                各音频流音量
               </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
-                onPress={() => handleSetVolume(s.key, Math.min(1, (volumes[s.key] ?? 0) + 0.1))}
-              >
-                <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} +</Text>
-              </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
-              onPress={() => handleToggleMute(s.key)}
-            >
-              <Text style={[styles.compactButtonText, styles.warningButtonText]}>
-                {mutedMap[s.key] ? '取消静音' : '静音'}
-              </Text>
-            </TouchableOpacity>
             </View>
-          ))}
+            <View>
+              <Text style={[styles.compactButtonText, isDarkMode ? styles.darkText : styles.lightText]}>
+                {streamsOpen ? '收起 ▲' : '展开 ▼'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {streamsOpen && (
+            <>
+              {audioStreams.map((s) => (
+                <View key={s.key} style={styles.buttonRow}>
+                  <TouchableOpacity
+                    style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
+                    onPress={() => handleSetVolume(s.key, Math.max(0, (volumes[s.key] ?? 0) - 0.1))}
+                  >
+                    <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} -</Text>
+                  </TouchableOpacity>
+                  <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}>
+                    <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>
+                      {s.label} 音量:
+                    </Text>
+                    <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
+                      {(volumes[s.key] ?? 0).toFixed(2)}
+                    </Text>
+                    <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
+                      {mutedMap[s.key] ? '（已静音）' : ''}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
+                    onPress={() => handleSetVolume(s.key, Math.min(1, (volumes[s.key] ?? 0) + 0.1))}
+                  >
+                    <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} +</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
+                    onPress={() => handleToggleMute(s.key)}
+                  >
+                    <Text style={[styles.compactButtonText, styles.warningButtonText]}>
+                      {mutedMap[s.key] ? '取消静音' : '静音'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </>
+          )}
         </View>
         )}
         {/* 文件管理部分 */}

@@ -16,10 +16,31 @@ const eventEmitter = new NativeEventEmitter(NativeModules.KioskManager);
 
 // 存储进度监听器
 const progressListeners: Set<(progress: DownloadProgress) => void> = new Set();
+// 系统亮度/音量监听器集合
+const systemBrightnessListeners: Set<(v: number) => void> = new Set();
+const volumeChangedListeners: Set<(data: { stream: string; index: number; max: number; value: number }) => void> = new Set();
+const globalVolumeChangedListeners: Set<(v: number) => void> = new Set();
+const ringerModeChangedListeners: Set<(mode: 'silent' | 'vibrate' | 'normal') => void> = new Set();
 
 // 监听原生事件
 eventEmitter.addListener('KioskManagerDownloadProgress', (progress: DownloadProgress) => {
   progressListeners.forEach(listener => listener(progress));
+});
+eventEmitter.addListener('KioskManagerSystemBrightnessChanged', (payload: { brightness: number }) => {
+  const v = typeof payload?.brightness === 'number' ? payload.brightness : 0;
+  systemBrightnessListeners.forEach(l => l(v));
+});
+eventEmitter.addListener('KioskManagerVolumeChanged', (payload: { stream: string; index: number; max: number; value: number }) => {
+  if (!payload) return;
+  volumeChangedListeners.forEach(l => l(payload));
+});
+eventEmitter.addListener('KioskManagerGlobalVolumeChanged', (payload: { value: number }) => {
+  const v = typeof payload?.value === 'number' ? payload.value : 0;
+  globalVolumeChangedListeners.forEach(l => l(v));
+});
+eventEmitter.addListener('KioskManagerRingerModeChanged', (payload: { mode: 'silent' | 'vibrate' | 'normal' }) => {
+  const m = (payload?.mode ?? 'normal') as 'silent' | 'vibrate' | 'normal';
+  ringerModeChangedListeners.forEach(l => l(m));
 });
 
 const KioskManager: KioskManagerType = {
@@ -299,6 +320,29 @@ const KioskManager: KioskManagerType = {
     }
     return KioskManagerTurboModule.systemSilentInstallApk(filePath);
   },
+  // 观察系统亮度/音量变化
+  startObservingSystemAv: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return;
+    }
+    KioskManagerTurboModule.startObservingSystemAv();
+  },
+  stopObservingSystemAv: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return;
+    }
+    KioskManagerTurboModule.stopObservingSystemAv();
+  },
+  addSystemBrightnessListener: (cb: (v: number) => void) => { systemBrightnessListeners.add(cb); },
+  removeSystemBrightnessListener: (cb: (v: number) => void) => { systemBrightnessListeners.delete(cb); },
+  addVolumeChangedListener: (cb: (d: { stream: string; index: number; max: number; value: number }) => void) => { volumeChangedListeners.add(cb); },
+  removeVolumeChangedListener: (cb: (d: { stream: string; index: number; max: number; value: number }) => void) => { volumeChangedListeners.delete(cb); },
+  addGlobalVolumeChangedListener: (cb: (v: number) => void) => { globalVolumeChangedListeners.add(cb); },
+  removeGlobalVolumeChangedListener: (cb: (v: number) => void) => { globalVolumeChangedListeners.delete(cb); },
+  addRingerModeChangedListener: (cb: (m: 'silent' | 'vibrate' | 'normal') => void) => { ringerModeChangedListeners.add(cb); },
+  removeRingerModeChangedListener: (cb: (m: 'silent' | 'vibrate' | 'normal') => void) => { ringerModeChangedListeners.delete(cb); },
   
   // 事件监听器
   addDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => {

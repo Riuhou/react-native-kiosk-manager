@@ -52,6 +52,17 @@ export interface KioskManagerType {
   setRingerMode: (mode: 'silent' | 'vibrate' | 'normal') => Promise<boolean>;
   hasNotificationPolicyAccess: () => Promise<boolean>;
   requestNotificationPolicyAccess: () => Promise<boolean>;
+  // 亮度/音量观察
+  startObservingSystemAv: () => void;
+  stopObservingSystemAv: () => void;
+  addSystemBrightnessListener: (cb: (v: number) => void) => void;
+  removeSystemBrightnessListener: (cb: (v: number) => void) => void;
+  addVolumeChangedListener: (cb: (d: { stream: string; index: number; max: number; value: number }) => void) => void;
+  removeVolumeChangedListener: (cb: (d: { stream: string; index: number; max: number; value: number }) => void) => void;
+  addGlobalVolumeChangedListener: (cb: (v: number) => void) => void;
+  removeGlobalVolumeChangedListener: (cb: (v: number) => void) => void;
+  addRingerModeChangedListener: (cb: (m: 'silent' | 'vibrate' | 'normal') => void) => void;
+  removeRingerModeChangedListener: (cb: (m: 'silent' | 'vibrate' | 'normal') => void) => void;
   
   // APK 更新相关方法
   downloadApk: (url: string) => Promise<DownloadResult>;

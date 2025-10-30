@@ -48,6 +48,9 @@ export interface Spec extends TurboModule {
   setRingerMode(mode: 'silent' | 'vibrate' | 'normal'): Promise<boolean>;
   hasNotificationPolicyAccess(): Promise<boolean>;
   requestNotificationPolicyAccess(): Promise<boolean>;
+  // 亮度/音量观察
+  startObservingSystemAv(): void;
+  stopObservingSystemAv(): void;
   
   // APK 更新相关方法
   downloadApk(url: string): Promise<DownloadResult>;
