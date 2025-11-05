@@ -14,40 +14,25 @@ npm install react-native-kiosk-manager
 
 ## Android权限配置
 
-### 自动权限合并
+### 自动合并
 
-安装本库后，必要的权限会自动合并到您的应用中，无需手动配置。
+安装本库后，以下内容会**自动合并**到您的应用中，**无需手动配置**：
 
-### 建议显式声明（可选）
+- ✅ 所有权限声明
+- ✅ `BootReceiver` 组件
+- ✅ `DeviceAdminReceiver` 组件
+- ✅ `FileProvider` 组件
 
-为了更好的透明性和兼容性，建议在您的 `android/app/src/main/AndroidManifest.xml` 中显式声明以下权限：
+**您不需要在 AndroidManifest.xml 中手动声明这些组件！**
 
-```xml
-<!-- Kiosk Manager 需要的权限 -->
-<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-<uses-permission android:name="android.permission.allowlist_lockTaskPackages" />
+### 需要手动创建的文件
 
-<!-- Device Admin 相关配置 -->
-<receiver android:name="com.riuhou.kioskmanager.DeviceAdminReceiver"
-          android:permission="android.permission.BIND_DEVICE_ADMIN"
-          android:exported="true">
-    <meta-data android:name="android.app.device_admin"
-               android:resource="@xml/device_admin_receiver" />
-    <intent-filter>
-        <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-    </intent-filter>
-</receiver>
-```
+虽然组件会自动合并，但您需要手动创建以下 XML 资源文件：
 
-### 需要复制的文件
-
-您还需要将以下文件复制到您的应用中：
-
-**创建文件**: `android/app/src/main/res/xml/device_admin_receiver.xml`
+**1. 必须创建**: `android/app/src/main/res/xml/device_admin_receiver.xml`
 
 ```xml
-<!-- res/xml/device_admin_receiver.xml -->
+<?xml version="1.0" encoding="utf-8"?>
 <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-policies>
     <force-lock />
@@ -55,6 +40,20 @@ npm install react-native-kiosk-manager
   </uses-policies>
 </device-admin>
 ```
+
+**2. 可选创建**（如果使用APK安装功能）: `android/app/src/main/res/xml/file_provider_paths.xml`
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-files-path name="apk_updates" path="." />
+    <external-path name="external" path="." />
+</paths>
+```
+
+### 详细配置说明
+
+📖 **完整配置文档**: [AndroidManifest.xml 配置说明](./docs/android-manifest-setup-zh.md)
 
 ## 使用方法
 

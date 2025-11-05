@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { KioskManagerType, DownloadResult, DownloadProgress, DownloadedFile } from './KioskManager.type';
+import type { KioskManagerType, DownloadResult, DownloadProgress, DownloadedFile, InstallStatus } from './KioskManager.type';
 
 let KioskManager: KioskManagerType;
 if (Platform.OS === 'android') {
@@ -8,5 +8,5 @@ if (Platform.OS === 'android') {
   KioskManager = require('./index.ios').default;
 }
 
-export type { KioskManagerType, DownloadResult, DownloadProgress, DownloadedFile };
+export type { KioskManagerType, DownloadResult, DownloadProgress, DownloadedFile, InstallStatus };
 export default KioskManager;

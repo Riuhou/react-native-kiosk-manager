@@ -20,6 +20,13 @@ export interface DownloadedFile {
   canWrite: boolean;     // 是否可写
 }
 
+export interface InstallStatus {
+  status: 'installing' | 'installed' | 'launching' | 'launched' | 'failed' | 'cancelled' | 'blocked' | 'conflict' | 'incompatible' | 'invalid' | 'storage_error' | 'timeout' | 'error' | 'launch_failed' | 'unknown';
+  packageName?: string;   // 包名
+  message?: string;       // 状态消息
+  progress?: number;      // 进度百分比 (0-100)，仅在 installing 状态时可用
+}
+
 /**
  * KioskManager 接口定义
  * 
@@ -930,6 +937,53 @@ export interface KioskManagerType {
    
    */
   systemSilentInstallApk: (filePath: string) => Promise<boolean>;
+
+  /**
+   * 检查应用是否已安装
+   * 
+   * 根据应用的包名检查该应用是否已安装在设备上。
+   * 
+   * @param packageName - 要检查的应用的包名（例如：com.example.app）
+   * @returns Promise<boolean> - 返回 true 表示应用已安装，false 表示未安装
+   * 
+   * @example
+   * // 示例代码：
+   * const isInstalled = await KioskManager.isAppInstalled('com.example.app');
+   * if (isInstalled) {
+   *   console.log('应用已安装');
+   *   await KioskManager.launchApp('com.example.app');
+   * } else {
+   *   console.log('应用未安装');
+   * }
+   * 
+   */
+  isAppInstalled: (packageName: string) => Promise<boolean>;
+
+  /**
+   * 启动指定包名的应用
+   * 
+   * 根据应用的包名启动该应用。如果应用未安装，会返回错误。
+   * 
+   * @param packageName - 要启动的应用的包名（例如：com.example.app）
+   * @returns Promise<boolean> - 返回 true 表示启动成功，false 表示失败
+   * 
+   * @example
+   * // 示例代码：
+   * try {
+   *   const success = await KioskManager.launchApp('com.example.app');
+   *   if (success) {
+   *     console.log('应用启动成功');
+   *   }
+   * } catch (error) {
+   *   console.error('启动应用失败:', error);
+   *   // 可能的错误：
+   *   // - E_APP_NOT_FOUND: 应用未安装
+   *   // - E_NO_LAUNCH_INTENT: 找不到启动意图
+   *   // - E_LAUNCH_FAILED: 启动失败
+   * }
+   * 
+   */
+  launchApp: (packageName: string) => Promise<boolean>;
   
   // ========== 事件监听器 ==========
 
@@ -978,6 +1032,80 @@ export interface KioskManagerType {
    
    */
   removeDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => void;
+
+  /**
+   * 添加安装状态监听器
+   * 
+   * 监听 APK 安装过程中的状态变化，包括：
+   * - installing: 正在安装
+   * - installed: 安装成功
+   * - launching: 正在启动应用
+   * - launched: 应用启动成功
+   * - failed: 安装失败
+   * - cancelled: 安装已取消
+   * - blocked: 安装被阻止
+   * - conflict: 安装冲突
+   * - incompatible: 应用不兼容
+   * - invalid: 无效的APK
+   * - storage_error: 存储空间不足
+   * - timeout: 安装检测超时
+   * - error: 检测安装状态时出错
+   * - launch_failed: 启动失败
+   * 
+   * @param callback - 状态变化回调函数，接收 InstallStatus 对象
+   * 
+   * @example
+   * // 示例代码：
+   * const statusListener = (status: InstallStatus) => {
+   *   console.log('安装状态:', status.status);
+   *   console.log('包名:', status.packageName);
+   *   console.log('消息:', status.message);
+   *   if (status.progress !== undefined) {
+   *     console.log('进度:', status.progress);
+   *   }
+   *   
+   *   switch (status.status) {
+   *     case 'installing':
+   *       // 显示安装进度
+   *       break;
+   *     case 'installed':
+   *       // 安装成功
+   *       break;
+   *     case 'launched':
+   *       // 应用已启动
+   *       break;
+   *     case 'failed':
+   *       // 安装失败
+   *       break;
+   *   }
+   * };
+   * 
+   * KioskManager.addInstallStatusListener(statusListener);
+   * 
+   * // 开始下载并安装
+   * await KioskManager.downloadAndSilentInstallApk('https://example.com/app.apk');
+   * 
+   * // 完成后记得移除监听器
+   * // KioskManager.removeInstallStatusListener(statusListener);
+   * 
+   */
+  addInstallStatusListener: (callback: (status: InstallStatus) => void) => void;
+
+  /**
+   * 移除安装状态监听器
+   * 
+   * @param callback - 要移除的回调函数（必须与添加时传入的是同一个函数引用）
+   * 
+   * @example
+   * // 示例代码：
+   * const listener = (status: InstallStatus) => { // ... 处理逻辑 };
+   * KioskManager.addInstallStatusListener(listener);
+   * 
+   * // 移除监听器
+   * KioskManager.removeInstallStatusListener(listener);
+   * 
+   */
+  removeInstallStatusListener: (callback: (status: InstallStatus) => void) => void;
   
   // ========== 文件管理方法 ==========
 

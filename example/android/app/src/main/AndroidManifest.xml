@@ -15,13 +15,13 @@
     </activity>
 
     <!-- Kiosk Manager 的组件 -->
-    <receiver android:name="com.riuhou.kioskmanager.BootReceiver" android:enabled="true" android:exported="true">
+    <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED" />
       </intent-filter>
     </receiver>
 
-    <receiver android:name="com.riuhou.kioskmanager.DeviceAdminReceiver" android:permission="android.permission.BIND_DEVICE_ADMIN" android:exported="true">
+    <receiver android:name=".DeviceAdminReceiver" android:permission="android.permission.BIND_DEVICE_ADMIN" android:exported="true">
       <meta-data android:name="android.app.device_admin" android:resource="@xml/device_admin_receiver" />
       <intent-filter>
         <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />

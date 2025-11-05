@@ -14,40 +14,25 @@ npm install react-native-kiosk-manager
 
 ## Android Permission Configuration
 
-### Automatic Permission Merging
+### Automatic Merging
 
-After installing this library, the necessary permissions will be automatically merged into your application without manual configuration.
+After installing this library, the following will be **automatically merged** into your application **without manual configuration**:
 
-### Recommended Explicit Declaration (Optional)
+- ✅ All permission declarations
+- ✅ `BootReceiver` component
+- ✅ `DeviceAdminReceiver` component
+- ✅ `FileProvider` component
 
-For better transparency and compatibility, it's recommended to explicitly declare the following permissions in your `android/app/src/main/AndroidManifest.xml`:
+**You do NOT need to manually declare these components in AndroidManifest.xml!**
 
-```xml
-<!-- Kiosk Manager required permissions -->
-<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-<uses-permission android:name="android.permission.allowlist_lockTaskPackages" />
+### Files You Need to Manually Create
 
-<!-- Device Admin configuration -->
-<receiver android:name="com.riuhou.kioskmanager.DeviceAdminReceiver"
-          android:permission="android.permission.BIND_DEVICE_ADMIN"
-          android:exported="true">
-    <meta-data android:name="android.app.device_admin"
-               android:resource="@xml/device_admin_receiver" />
-    <intent-filter>
-        <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-    </intent-filter>
-</receiver>
-```
+Although components are automatically merged, you need to manually create the following XML resource files:
 
-### Required Files to Copy
-
-You also need to copy the following file to your application:
-
-**Create file**: `android/app/src/main/res/xml/device_admin_receiver.xml`
+**1. Required**: `android/app/src/main/res/xml/device_admin_receiver.xml`
 
 ```xml
-<!-- res/xml/device_admin_receiver.xml -->
+<?xml version="1.0" encoding="utf-8"?>
 <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-policies>
     <force-lock />
@@ -55,6 +40,20 @@ You also need to copy the following file to your application:
   </uses-policies>
 </device-admin>
 ```
+
+**2. Optional** (if using APK installation features): `android/app/src/main/res/xml/file_provider_paths.xml`
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-files-path name="apk_updates" path="." />
+    <external-path name="external" path="." />
+</paths>
+```
+
+### Detailed Setup Guide
+
+📖 **Complete Setup Documentation**: [AndroidManifest.xml Setup Guide](./docs/android-manifest-setup.md)
 
 ## Usage
 

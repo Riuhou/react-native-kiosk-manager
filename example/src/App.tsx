@@ -15,6 +15,7 @@ import KioskManager, {
   type DownloadResult,
   type DownloadProgress,
   type DownloadedFile,
+  type InstallStatus,
 } from 'react-native-kiosk-manager';
 
 export default function App() {
@@ -24,17 +25,22 @@ export default function App() {
     boolean | null
   >(null);
   const [apkUrl, setApkUrl] = useState<string>(
-    'https://assets.driver-day.com/LATEST/apk/dd.apk'
+    'https://assets.driver-day.com/LATEST/apk/kiosk1.0.apk'
   );
   const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(
     null
   );
   const [isInstalling, setIsInstalling] = useState<boolean>(false);
+  const [packageName, setPackageName] = useState<string>('com.kioskmanager.example');
+  const [isLaunching, setIsLaunching] = useState<boolean>(false);
+  const [isAppInstalledStatus, setIsAppInstalledStatus] = useState<boolean | null>(null);
+  const [isCheckingInstall, setIsCheckingInstall] = useState<boolean>(false);
   const [downloadProgress, setDownloadProgress] =
     useState<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadedFiles, setDownloadedFiles] = useState<DownloadedFile[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState<boolean>(false);
+  const [installStatus, setInstallStatus] = useState<InstallStatus | null>(null);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
 
@@ -81,6 +87,31 @@ export default function App() {
 
     return () => {
       KioskManager.removeDownloadProgressListener(handleProgress);
+    };
+  }, []);
+
+  // 设置安装状态监听器
+  useEffect(() => {
+    const handleInstallStatus = (status: InstallStatus) => {
+      console.log('安装状态更新:', status);
+      setInstallStatus(status);
+      
+      // 根据状态更新 isInstalling
+      if (status.status === 'installed' || status.status === 'launched' || 
+          status.status === 'failed' || status.status === 'cancelled' || 
+          status.status === 'blocked' || status.status === 'conflict' || 
+          status.status === 'incompatible' || status.status === 'invalid' || 
+          status.status === 'storage_error' || status.status === 'launch_failed') {
+        setIsInstalling(false);
+      } else if (status.status === 'installing' || status.status === 'launching') {
+        setIsInstalling(true);
+      }
+    };
+
+    KioskManager.addInstallStatusListener(handleInstallStatus);
+
+    return () => {
+      KioskManager.removeInstallStatusListener(handleInstallStatus);
     };
   }, []);
 
@@ -626,7 +657,7 @@ export default function App() {
       await KioskManager.silentInstallAndLaunchApk(filePath);
       
       console.log('APK静默安装并启动启动成功');
-      Alert.alert('Success', `开始静默安装并启动 ${fileName}`);
+      // Alert.alert('Success', `开始静默安装并启动 ${fileName}`);
     } catch (error) {
       console.error('静默安装并启动APK失败:', error);
       Alert.alert('Error', `Failed to silent install and launch APK: ${error}`);
@@ -719,12 +750,98 @@ export default function App() {
       console.log('已启动静默安装，安装完成后将自动启动应用');
       console.log('==================');
 
-      Alert.alert('Success', 'APK download, silent installation and auto-launch started');
+      // Alert.alert('Success', 'APK download, silent installation and auto-launch started');
     } catch (error) {
       console.error('下载并静默安装并启动失败:', error);
       Alert.alert('Error', `Failed to download, silent install and launch APK: ${error}`);
     } finally {
       setIsInstalling(false);
+    }
+  };
+
+  const handleCheckAppInstalled = async () => {
+    if (!packageName.trim()) {
+      Alert.alert('Error', '请输入应用包名');
+      return;
+    }
+
+    setIsCheckingInstall(true);
+    try {
+      console.log('=== 检查应用安装状态 ===');
+      console.log('包名:', packageName);
+      console.log('==================');
+
+      const isInstalled = await KioskManager.isAppInstalled(packageName.trim());
+      setIsAppInstalledStatus(isInstalled);
+
+      console.log('=== 检查结果 ===');
+      console.log('包名:', packageName);
+      console.log('安装状态:', isInstalled ? '已安装' : '未安装');
+      console.log('==================');
+
+      Alert.alert(
+        isInstalled ? '应用已安装' : '应用未安装',
+        `包名: ${packageName}\n状态: ${isInstalled ? '已安装' : '未安装'}`
+      );
+    } catch (error: any) {
+      console.error('检查应用安装状态失败:', error);
+      setIsAppInstalledStatus(null);
+      Alert.alert('Error', `检查失败: ${error.message || error}`);
+    } finally {
+      setIsCheckingInstall(false);
+    }
+  };
+
+  const handleLaunchApp = async () => {
+    if (!packageName.trim()) {
+      Alert.alert('Error', '请输入应用包名');
+      return;
+    }
+
+    setIsLaunching(true);
+    try {
+      console.log('=== 开始启动应用 ===');
+      console.log('包名:', packageName);
+      console.log('==================');
+
+      // 先检查应用是否已安装
+      const isInstalled = await KioskManager.isAppInstalled(packageName.trim());
+      setIsAppInstalledStatus(isInstalled);
+
+      if (!isInstalled) {
+        Alert.alert('Error', `应用未安装: ${packageName}\n\n请先安装应用后再启动。`);
+        setIsLaunching(false);
+        return;
+      }
+
+      const success = await KioskManager.launchApp(packageName.trim());
+
+      if (success) {
+        console.log('=== 应用启动成功 ===');
+        console.log('包名:', packageName);
+        console.log('==================');
+        Alert.alert('Success', `应用启动成功: ${packageName}`);
+      } else {
+        console.error('应用启动失败');
+        Alert.alert('Error', `应用启动失败: ${packageName}`);
+      }
+    } catch (error: any) {
+      console.error('启动应用失败:', error);
+      let errorMessage = '启动应用失败';
+      if (error.code === 'E_APP_NOT_FOUND') {
+        errorMessage = `应用未安装: ${packageName}`;
+        setIsAppInstalledStatus(false);
+      } else if (error.code === 'E_NO_LAUNCH_INTENT') {
+        errorMessage = `找不到启动意图: ${packageName}`;
+      } else if (error.code === 'E_LAUNCH_FAILED') {
+        errorMessage = `启动失败: ${error.message || packageName}`;
+      } else {
+        errorMessage = `启动应用失败: ${error.message || error}`;
+      }
+      console.error('启动应用失败:', errorMessage);
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsLaunching(false);
     }
   };
 
@@ -752,7 +869,7 @@ export default function App() {
               isDarkMode ? styles.darkText : styles.lightText,
             ]}
           >
-            Kiosk Manager Example
+            Kiosk Manager Example12123
           </Text>
           <Text
             style={[
@@ -1114,6 +1231,124 @@ export default function App() {
             </View>
           )}
 
+          {/* 安装状态显示 */}
+          {installStatus && (
+            <View
+              style={[
+                styles.statusItem,
+                isDarkMode && styles.darkStatusItem,
+                { marginTop: 10, marginBottom: 10, padding: 12 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusLabel,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                  { marginBottom: 5 },
+                ]}
+              >
+                安装状态:
+              </Text>
+              <Text
+                style={[
+                  styles.statusValue,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                  {
+                    color:
+                      installStatus.status === 'installed' ||
+                      installStatus.status === 'launched'
+                        ? '#4CAF50'
+                        : installStatus.status === 'failed' ||
+                          installStatus.status === 'cancelled' ||
+                          installStatus.status === 'blocked' ||
+                          installStatus.status === 'conflict' ||
+                          installStatus.status === 'incompatible' ||
+                          installStatus.status === 'invalid' ||
+                          installStatus.status === 'storage_error' ||
+                          installStatus.status === 'launch_failed'
+                        ? '#F44336'
+                        : '#2196F3',
+                    fontWeight: 'bold',
+                    marginBottom: 5,
+                  },
+                ]}
+              >
+                {installStatus.status === 'installing'
+                  ? '正在安装...'
+                  : installStatus.status === 'installed'
+                  ? '安装成功'
+                  : installStatus.status === 'launching'
+                  ? '正在启动...'
+                  : installStatus.status === 'launched'
+                  ? '启动成功'
+                  : installStatus.status === 'failed'
+                  ? '安装失败'
+                  : installStatus.status === 'cancelled'
+                  ? '已取消'
+                  : installStatus.status === 'blocked'
+                  ? '被阻止'
+                  : installStatus.status === 'conflict'
+                  ? '安装冲突'
+                  : installStatus.status === 'incompatible'
+                  ? '不兼容'
+                  : installStatus.status === 'invalid'
+                  ? '无效APK'
+                  : installStatus.status === 'storage_error'
+                  ? '存储空间不足'
+                  : installStatus.status === 'timeout'
+                  ? '超时'
+                  : installStatus.status === 'error'
+                  ? '错误'
+                  : installStatus.status === 'launch_failed'
+                  ? '启动失败'
+                  : installStatus.status}
+              </Text>
+              {installStatus.message && (
+                <Text
+                  style={[
+                    styles.progressDetails,
+                    isDarkMode ? styles.darkSubtext : styles.lightSubtext,
+                    { marginTop: 3 },
+                  ]}
+                >
+                  {installStatus.message}
+                </Text>
+              )}
+              {installStatus.packageName && (
+                <Text
+                  style={[
+                    styles.progressDetails,
+                    isDarkMode ? styles.darkSubtext : styles.lightSubtext,
+                    { marginTop: 3 },
+                  ]}
+                >
+                  包名: {installStatus.packageName}
+                </Text>
+              )}
+              {installStatus.progress !== undefined && (
+                <View style={{ marginTop: 10 }}>
+                  <View style={styles.progressBarContainer}>
+                    <View
+                      style={[
+                        styles.progressBar,
+                        { width: `${installStatus.progress}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.progressDetails,
+                      isDarkMode ? styles.darkSubtext : styles.lightSubtext,
+                      { marginTop: 5, textAlign: 'center' },
+                    ]}
+                  >
+                    {installStatus.progress}%
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
           <View
             style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
           >
@@ -1213,6 +1448,130 @@ export default function App() {
               </Text>
             </View>
           )}
+
+          {/* 启动应用功能 */}
+          <View style={{ height: 1, backgroundColor: isDarkMode ? '#333' : '#e0e0e0', marginVertical: 20 }} />
+          <Text
+            style={[
+              styles.sectionTitle,
+              isDarkMode ? styles.darkText : styles.lightText,
+              { marginTop: 10, marginBottom: 10 },
+            ]}
+          >
+            启动应用
+          </Text>
+          <Text
+            style={[
+              styles.inputLabel,
+              isDarkMode ? styles.darkText : styles.lightText,
+              { marginBottom: 5 },
+            ]}
+          >
+            说明: 输入应用包名来启动已安装的应用
+          </Text>
+          <Text
+            style={[
+              styles.inputLabel,
+              isDarkMode ? styles.darkSubtext : styles.lightSubtext,
+              { fontSize: 12, marginBottom: 10 },
+            ]}
+          >
+            示例: com.android.settings (设置), com.android.chrome (Chrome浏览器)
+          </Text>
+
+          <View style={styles.inputContainer}>
+            <Text
+              style={[
+                styles.inputLabel,
+                isDarkMode ? styles.darkText : styles.lightText,
+              ]}
+            >
+              应用包名:
+            </Text>
+            <TextInput
+              style={[styles.textInput, isDarkMode && styles.darkTextInput]}
+              value={packageName}
+              onChangeText={(text) => {
+                setPackageName(text);
+                setIsAppInstalledStatus(null); // 清除之前的状态
+              }}
+              placeholder="输入应用包名，例如: com.android.settings"
+              placeholderTextColor={isDarkMode ? '#666' : '#999'}
+            />
+          </View>
+
+          {/* 应用安装状态显示 */}
+          {isAppInstalledStatus !== null && (
+            <View
+              style={[
+                styles.statusItem,
+                isDarkMode && styles.darkStatusItem,
+                { marginTop: 10, marginBottom: 10 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusLabel,
+                  isDarkMode ? styles.darkText : styles.lightText,
+                ]}
+              >
+                安装状态:
+              </Text>
+              <Text
+                style={[
+                  styles.statusValue,
+                  isDarkMode && styles.darkText,
+                  isAppInstalledStatus
+                    ? styles.statusEnabled
+                    : styles.statusDisabled,
+                ]}
+              >
+                {isAppInstalledStatus ? '已安装' : '未安装'}
+              </Text>
+            </View>
+          )}
+
+          <View
+            style={[
+              styles.buttonGrid,
+              isTablet && styles.tabletButtonGrid,
+              { marginTop: 10 },
+            ]}
+          >
+            <TouchableOpacity
+              style={[
+                styles.compactButton,
+                styles.infoButton,
+                isDarkMode && styles.darkButton,
+                isCheckingInstall && styles.disabledButton,
+              ]}
+              onPress={handleCheckAppInstalled}
+              disabled={isCheckingInstall}
+            >
+              <Text
+                style={[styles.compactButtonText, styles.infoButtonText]}
+              >
+                {isCheckingInstall ? '检查中...' : '检查安装状态'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.compactButton,
+                styles.primaryButton,
+                isDarkMode && styles.darkButton,
+                (isLaunching || isCheckingInstall) && styles.disabledButton,
+              ]}
+              onPress={handleLaunchApp}
+              disabled={isLaunching || isCheckingInstall}
+            >
+              <Text
+                style={[styles.compactButtonText, styles.primaryButtonText]}
+              >
+                {isLaunching ? '启动中...' : '启动应用'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
         )}
 

@@ -1,4 +1,4 @@
-import type { KioskManagerType, DownloadProgress } from './KioskManager.type';
+import type { KioskManagerType, DownloadProgress, InstallStatus } from './KioskManager.type';
 import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 
 // 只在Android平台上导入TurboModule
@@ -16,6 +16,8 @@ const eventEmitter = new NativeEventEmitter(NativeModules.KioskManager);
 
 // 存储进度监听器
 const progressListeners: Set<(progress: DownloadProgress) => void> = new Set();
+// 安装状态监听器集合
+const installStatusListeners: Set<(status: InstallStatus) => void> = new Set();
 // 系统亮度/音量监听器集合
 const systemBrightnessListeners: Set<(v: number) => void> = new Set();
 const volumeChangedListeners: Set<(data: { stream: string; index: number; max: number; value: number }) => void> = new Set();
@@ -25,6 +27,9 @@ const ringerModeChangedListeners: Set<(mode: 'silent' | 'vibrate' | 'normal') =>
 // 监听原生事件
 eventEmitter.addListener('KioskManagerDownloadProgress', (progress: DownloadProgress) => {
   progressListeners.forEach(listener => listener(progress));
+});
+eventEmitter.addListener('KioskManagerInstallStatus', (status: InstallStatus) => {
+  installStatusListeners.forEach(listener => listener(status));
 });
 eventEmitter.addListener('KioskManagerSystemBrightnessChanged', (payload: { brightness: number }) => {
   const v = typeof payload?.brightness === 'number' ? payload.brightness : 0;
@@ -320,6 +325,20 @@ const KioskManager: KioskManagerType = {
     }
     return KioskManagerTurboModule.systemSilentInstallApk(filePath);
   },
+  isAppInstalled: (packageName: string) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.isAppInstalled(packageName);
+  },
+  launchApp: (packageName: string) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.launchApp(packageName);
+  },
   // 观察系统亮度/音量变化
   startObservingSystemAv: () => {
     if (!KioskManagerTurboModule) {
@@ -350,6 +369,12 @@ const KioskManager: KioskManagerType = {
   },
   removeDownloadProgressListener: (callback: (progress: DownloadProgress) => void) => {
     progressListeners.delete(callback);
+  },
+  addInstallStatusListener: (callback: (status: InstallStatus) => void) => {
+    installStatusListeners.add(callback);
+  },
+  removeInstallStatusListener: (callback: (status: InstallStatus) => void) => {
+    installStatusListeners.delete(callback);
   },
   
   // 文件管理方法

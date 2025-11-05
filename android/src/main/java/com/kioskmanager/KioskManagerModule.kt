@@ -38,6 +38,8 @@ import android.os.Looper
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import kotlin.math.roundToInt
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -48,7 +50,13 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   private var brightnessObserver: ContentObserver? = null
   private var volumeReceiver: BroadcastReceiver? = null
   private var ringerReceiver: BroadcastReceiver? = null
+  private var installReceiver: BroadcastReceiver? = null
   private var isObservingAv: Boolean = false
+  private var pendingInstallPackageName: String? = null
+  private var pendingInstallSessionId: Int? = null
+  private var pollingRunnable: Runnable? = null
+  private var isInstallComplete: Boolean = false
+  private var pendingInstallOldVersionCode: Long? = null // 安装前的版本号
 
   @ReactMethod
   fun startKiosk() {
@@ -795,6 +803,30 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  private fun sendInstallStatusEvent(status: String, packageName: String? = null, message: String? = null, progress: Int? = null) {
+    try {
+      val statusMap = Arguments.createMap()
+      statusMap.putString("status", status)
+      if (packageName != null) {
+        statusMap.putString("packageName", packageName)
+      }
+      if (message != null) {
+        statusMap.putString("message", message)
+      }
+      if (progress != null) {
+        statusMap.putInt("progress", progress)
+      }
+      
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("KioskManagerInstallStatus", statusMap)
+      
+      Log.i("KioskManager", "发送安装状态事件: $status, packageName: $packageName, message: $message")
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Failed to send install status event: ${e.message}")
+    }
+  }
+
   @ReactMethod
   fun installApk(filePath: String, promise: Promise) {
     try {
@@ -1179,7 +1211,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         if (value is WritableMap) {
           val filePath = value.getString("filePath")
           if (filePath != null) {
-            silentInstallApk(filePath, promise)
+            silentInstallAndLaunchApk(filePath, promise)
           } else {
             promise.reject("E_DOWNLOAD_FAILED", "Failed to get file path from download")
           }
@@ -1267,7 +1299,22 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       }
       
       val targetPackageName = packageInfo.packageName
+      val newVersionCode = packageInfo.longVersionCode
       Log.i("KioskManager", "目标包名: $targetPackageName")
+      Log.i("KioskManager", "新版本号: $newVersionCode")
+      
+      // 记录安装前的版本号（如果包已存在）
+      try {
+        val existingPackageInfo = context.packageManager.getPackageInfo(targetPackageName, 0)
+        pendingInstallOldVersionCode = existingPackageInfo.longVersionCode
+        Log.i("KioskManager", "检测到包已存在，当前版本号: ${pendingInstallOldVersionCode}")
+      } catch (e: PackageManager.NameNotFoundException) {
+        pendingInstallOldVersionCode = null
+        Log.i("KioskManager", "包不存在，这是首次安装")
+      }
+      
+      // 发送开始安装事件
+      sendInstallStatusEvent("installing", targetPackageName, "开始安装应用")
       
       // 使用PackageInstaller进行静默安装
       val packageInstaller = context.packageManager.packageInstaller
@@ -1323,6 +1370,20 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
       )
       
+      // 保存待安装的包名和会话ID，用于接收器
+      pendingInstallPackageName = targetPackageName
+      pendingInstallSessionId = sessionId
+      
+      // 重置安装完成标志和停止之前的轮询
+      isInstallComplete = false
+      pollingRunnable?.let { runnable ->
+        Handler(Looper.getMainLooper()).removeCallbacks(runnable)
+        pollingRunnable = null
+      }
+      
+      // 注册安装完成接收器（如果还没有注册）
+      registerInstallReceiver()
+      
       // 提交安装
       session.commit(pendingIntent.intentSender)
       
@@ -1331,21 +1392,136 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       Log.i("KioskManager", "目标包名: $targetPackageName")
       Log.i("KioskManager", "==================")
       
-      // 延迟启动应用（等待安装完成）
-      android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-        try {
-          launchApp(targetPackageName)
-        } catch (e: Exception) {
-          Log.e("KioskManager", "Failed to launch app after install: ${e.message}")
-        }
-      }, 3000) // 等待3秒后启动应用
+      // 发送安装提交事件
+      sendInstallStatusEvent("installing", targetPackageName, "安装已提交，等待完成")
+      
+      // 使用轮询方式检测安装完成，然后启动应用
+      startPollingForInstallCompletion(targetPackageName, sessionId)
       
       promise.resolve(true)
       session.close()
       
     } catch (e: Exception) {
       Log.e("KioskManager", "Silent install and launch failed: ${e.message}")
+      sendInstallStatusEvent("failed", null, "安装失败: ${e.message}")
       promise.reject("E_SILENT_INSTALL_FAILED", "Silent install and launch failed: ${e.message}")
+    }
+  }
+
+  private fun registerInstallReceiver() {
+    if (installReceiver != null) return
+    
+    val context = reactApplicationContext
+    installReceiver = object : BroadcastReceiver() {
+      override fun onReceive(ctx: Context?, intent: Intent?) {
+        if (intent == null) return
+        
+      val action = intent.action
+      if (action == "com.kioskmanager.INSTALL_COMPLETE") {
+        val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)
+        // PackageInstaller.EXTRA_PACKAGE_NAME 可能不存在，使用我们保存的包名
+        val packageName = intent.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME) ?: pendingInstallPackageName
+        val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+        
+        Log.i("KioskManager", "收到安装完成广播: status=$status, packageName=$packageName, message=$message")
+        
+        when (status) {
+            PackageInstaller.STATUS_SUCCESS -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              if (finalPackageName != null) {
+                Log.i("KioskManager", "安装成功: $finalPackageName")
+                // 标记安装完成，停止轮询
+                isInstallComplete = true
+                // 停止轮询
+                pollingRunnable?.let { runnable ->
+                  Handler(Looper.getMainLooper()).removeCallbacks(runnable)
+                  pollingRunnable = null
+                }
+                // 发送100%进度和安装成功事件
+                sendInstallStatusEvent("installing", finalPackageName, "安装完成", 100)
+                sendInstallStatusEvent("installed", finalPackageName, "安装成功")
+                // 清除旧版本号记录
+                pendingInstallOldVersionCode = null
+                // 如果这是我们正在等待的包，启动应用
+                // 延迟1秒启动，给 PackageManager 足够时间刷新缓存
+                if (finalPackageName == pendingInstallPackageName) {
+                  Handler(Looper.getMainLooper()).postDelayed({
+                    try {
+                      sendInstallStatusEvent("launching", finalPackageName, "正在启动应用")
+                      launchAppInternal(finalPackageName)
+                    } catch (e: Exception) {
+                      Log.e("KioskManager", "启动应用失败: ${e.message}")
+                      sendInstallStatusEvent("launch_failed", finalPackageName, "启动失败: ${e.message}")
+                    }
+                  }, 1000) // 增加到1秒延迟
+                }
+              } else {
+                Log.w("KioskManager", "安装成功但无法获取包名")
+                isInstallComplete = true
+                pollingRunnable?.let { runnable ->
+                  Handler(Looper.getMainLooper()).removeCallbacks(runnable)
+                  pollingRunnable = null
+                }
+                sendInstallStatusEvent("installed", null, "安装成功")
+              }
+            }
+            PackageInstaller.STATUS_FAILURE -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.e("KioskManager", "安装失败: $finalPackageName, 错误: $message")
+              // 停止轮询
+              isInstallComplete = true
+              pollingRunnable?.let { runnable ->
+                Handler(Looper.getMainLooper()).removeCallbacks(runnable)
+                pollingRunnable = null
+              }
+              sendInstallStatusEvent("failed", finalPackageName, "安装失败: $message")
+            }
+            PackageInstaller.STATUS_FAILURE_ABORTED -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.e("KioskManager", "安装已取消: $finalPackageName")
+              sendInstallStatusEvent("cancelled", finalPackageName, "安装已取消")
+            }
+            PackageInstaller.STATUS_FAILURE_BLOCKED -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.e("KioskManager", "安装被阻止: $finalPackageName")
+              sendInstallStatusEvent("blocked", finalPackageName, "安装被阻止")
+            }
+            PackageInstaller.STATUS_FAILURE_CONFLICT -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.e("KioskManager", "安装冲突: $finalPackageName")
+              sendInstallStatusEvent("conflict", finalPackageName, "安装冲突")
+            }
+            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.e("KioskManager", "应用不兼容: $finalPackageName")
+              sendInstallStatusEvent("incompatible", finalPackageName, "应用不兼容")
+            }
+            PackageInstaller.STATUS_FAILURE_INVALID -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.e("KioskManager", "无效的APK: $finalPackageName")
+              sendInstallStatusEvent("invalid", finalPackageName, "无效的APK")
+            }
+            PackageInstaller.STATUS_FAILURE_STORAGE -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.e("KioskManager", "存储空间不足: $finalPackageName")
+              sendInstallStatusEvent("storage_error", finalPackageName, "存储空间不足")
+            }
+            else -> {
+              val finalPackageName = packageName ?: pendingInstallPackageName
+              Log.w("KioskManager", "未知安装状态: $status, packageName: $finalPackageName")
+              sendInstallStatusEvent("unknown", finalPackageName, "未知状态: $status")
+            }
+          }
+        }
+      }
+    }
+    
+    try {
+      val filter = IntentFilter("com.kioskmanager.INSTALL_COMPLETE")
+      context.registerReceiver(installReceiver, filter)
+      Log.i("KioskManager", "安装完成接收器已注册")
+    } catch (e: Exception) {
+      Log.e("KioskManager", "注册安装接收器失败: ${e.message}")
     }
   }
 
@@ -1416,6 +1592,9 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       
       Log.i("KioskManager", "=== 开始系统级静默安装 ===")
       Log.i("KioskManager", "APK文件路径: $filePath")
+      Log.i("KioskManager", "文件存在: ${apkFile.exists()}")
+      Log.i("KioskManager", "文件大小: ${apkFile.length()} 字节")
+      Log.i("KioskManager", "文件可读: ${apkFile.canRead()}")
       Log.i("KioskManager", "==================")
       
       if (!apkFile.exists()) {
@@ -1432,59 +1611,180 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         return
       }
       
-      // 使用设备策略管理器进行系统级安装
-      try {
-        val packageInfo = context.packageManager.getPackageArchiveInfo(filePath, 0)
-        if (packageInfo != null) {
-          val targetPackageName = packageInfo.packageName
-          Log.i("KioskManager", "目标包名: $targetPackageName")
-          
-          // 使用设备策略管理器安装应用
-          val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
-          val apkUri = Uri.fromFile(apkFile)
-          val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
-          
-          // 使用反射调用installSystemUpdate方法，因为参数可能在不同Android版本中不同
-          try {
-            val method = dpm.javaClass.getMethod("installSystemUpdate", 
-              ComponentName::class.java, Uri::class.java, java.util.concurrent.Executor::class.java)
-            method.invoke(dpm, adminComponent, apkUri, executor)
-          } catch (e: Exception) {
-            Log.w("KioskManager", "installSystemUpdate not available: ${e.message}")
-            // 如果系统级安装不可用，回退到普通静默安装
-            promise.reject("E_SYSTEM_INSTALL_NOT_AVAILABLE", "System install not available: ${e.message}")
-            return
-          }
-          
-          Log.i("KioskManager", "=== 系统级静默安装提交成功 ===")
-          Log.i("KioskManager", "目标包名: $targetPackageName")
-          Log.i("KioskManager", "==================")
-          
-          promise.resolve(true)
-        } else {
-          promise.reject("E_INVALID_APK", "Invalid APK file")
-        }
-      } catch (e: Exception) {
-        Log.e("KioskManager", "System silent install failed: ${e.message}")
-        promise.reject("E_SYSTEM_INSTALL_FAILED", "System silent install failed: ${e.message}")
+      // 使用PackageInstaller进行系统级静默安装（设备所有者可以使用此方法进行静默安装）
+      val packageInstaller = context.packageManager.packageInstaller
+      val sessionParams = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+      
+      // 获取APK包信息
+      val packageInfo = context.packageManager.getPackageArchiveInfo(filePath, 0)
+      if (packageInfo != null) {
+        val targetPackageName = packageInfo.packageName
+        sessionParams.setAppPackageName(targetPackageName)
+        Log.i("KioskManager", "目标包名: $targetPackageName")
+      } else {
+        promise.reject("E_INVALID_APK", "Invalid APK file")
+        return
       }
       
+      // 设置安装参数，确保完全静默安装
+      try {
+        // 使用数字常量而不是可能不存在的常量
+        sessionParams.setInstallLocation(1) // 1 = INSTALL_LOCATION_INTERNAL_ONLY
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallLocation not available: ${e.message}")
+      }
+      
+      try {
+        // 使用数字常量
+        sessionParams.setInstallReason(4) // 4 = INSTALL_REASON_DEVICE_RESTORE
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallReason not available: ${e.message}")
+      }
+      
+      // 添加额外的静默安装标志
+      try {
+        // 使用反射调用可能不存在的方法
+        val method = sessionParams.javaClass.getMethod("setInstallFlags", Int::class.java)
+        method.invoke(sessionParams, 2) // 2 = INSTALL_REPLACE_EXISTING
+      } catch (e: Exception) {
+        Log.w("KioskManager", "setInstallFlags not available: ${e.message}")
+      }
+      
+      // 创建安装会话
+      val sessionId = packageInstaller.createSession(sessionParams)
+      val session = packageInstaller.openSession(sessionId)
+      
+      // 将APK文件写入会话
+      val inputStream = apkFile.inputStream()
+      val outputStream = session.openWrite("package", 0, apkFile.length())
+      
+      val buffer = ByteArray(8192)
+      var bytesRead: Int
+      while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+        outputStream.write(buffer, 0, bytesRead)
+      }
+      
+      inputStream.close()
+      outputStream.close()
+      
+      // 创建IntentSender用于安装回调
+      val pendingIntent = android.app.PendingIntent.getBroadcast(
+        context, 
+        sessionId, 
+        Intent("com.kioskmanager.INSTALL_COMPLETE"), 
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+      )
+      
+      // 提交安装
+      session.commit(pendingIntent.intentSender)
+      
+      Log.i("KioskManager", "=== 系统级静默安装提交成功 ===")
+      Log.i("KioskManager", "安装会话ID: $sessionId")
+      Log.i("KioskManager", "目标包名: ${packageInfo.packageName}")
+      Log.i("KioskManager", "==================")
+      
+      promise.resolve(true)
+      session.close()
+      
     } catch (e: Exception) {
-      Log.e("KioskManager", "System silent install failed: ${e.message}")
+      Log.e("KioskManager", "System silent install failed: ${e.message}", e)
       promise.reject("E_SYSTEM_INSTALL_FAILED", "System silent install failed: ${e.message}")
     }
   }
 
-  private fun launchApp(packageName: String) {
+  @ReactMethod
+  fun isAppInstalled(packageName: String, promise: Promise) {
     try {
       val context = reactApplicationContext
       val packageManager = context.packageManager
       
-      // 检查应用是否已安装
+      // 方式1: 先尝试使用 PackageManager API
+      var isInstalled = false
       try {
-        packageManager.getPackageInfo(packageName, 0)
+        val appInfo = packageManager.getApplicationInfo(packageName, 0)
+        isInstalled = true
+        Log.i("KioskManager", "✓ 通过 getApplicationInfo 检测到应用已安装: $packageName")
+        Log.i("KioskManager", "包信息: enabled=${appInfo.enabled}")
       } catch (e: PackageManager.NameNotFoundException) {
-        Log.e("KioskManager", "App not found: $packageName")
+        Log.i("KioskManager", "✗ 通过 getApplicationInfo 未检测到应用: $packageName")
+      } catch (e: Exception) {
+        Log.w("KioskManager", "getApplicationInfo 检查时出现异常: ${e.message}")
+      }
+      
+      // 方式2: 如果 PackageManager API 找不到，使用 shell 命令检测（更可靠）
+      if (!isInstalled) {
+        try {
+          val process = Runtime.getRuntime().exec("pm list packages")
+          val reader = BufferedReader(InputStreamReader(process.inputStream))
+          var line: String?
+          
+          while (reader.readLine().also { line = it } != null) {
+            // pm list packages 输出格式: package:com.example.app
+            if (line!!.trim().equals("package:$packageName", ignoreCase = true)) {
+              isInstalled = true
+              Log.i("KioskManager", "✓ 通过 pm list packages 检测到应用已安装: $packageName")
+              break
+            }
+          }
+          
+          reader.close()
+          process.waitFor()
+          
+          if (!isInstalled) {
+            Log.i("KioskManager", "✗ 通过 pm list packages 也未检测到应用: $packageName")
+          }
+        } catch (e: Exception) {
+          Log.w("KioskManager", "使用 shell 命令检测时出现异常: ${e.message}")
+        }
+      }
+      
+      promise.resolve(isInstalled)
+    } catch (e: Exception) {
+      Log.e("KioskManager", "检查应用安装状态失败: ${e.message}", e)
+      promise.reject("E_CHECK_FAILED", "Failed to check if app is installed: ${e.message}")
+    }
+  }
+
+  @ReactMethod
+  fun launchApp(packageName: String, promise: Promise) {
+    try {
+      val context = reactApplicationContext
+      val packageManager = context.packageManager
+      
+      Log.i("KioskManager", "=== 开始启动应用 ===")
+      Log.i("KioskManager", "包名: $packageName")
+      
+      // 检查应用是否已安装 - 使用多种方式尝试
+      var isInstalled = false
+      try {
+        // 方式1: 使用 GET_ACTIVITIES flag
+        packageManager.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES)
+        isInstalled = true
+        Log.i("KioskManager", "应用已安装 (方式1)")
+      } catch (e: PackageManager.NameNotFoundException) {
+        try {
+          // 方式2: 使用 0 flag
+          packageManager.getPackageInfo(packageName, 0)
+          isInstalled = true
+          Log.i("KioskManager", "应用已安装 (方式2)")
+        } catch (e2: PackageManager.NameNotFoundException) {
+          // 方式3: 尝试获取启动意图（即使没有包信息，也可能有启动意图）
+          val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+          if (launchIntent != null) {
+            isInstalled = true
+            Log.i("KioskManager", "应用已安装 (方式3: 通过启动意图检测)")
+          } else {
+            Log.e("KioskManager", "应用未安装: $packageName")
+            Log.e("KioskManager", "所有检查方式都失败")
+            promise.reject("E_APP_NOT_FOUND", "App not found: $packageName")
+            return
+          }
+        }
+      }
+      
+      if (!isInstalled) {
+        Log.e("KioskManager", "应用未安装: $packageName")
+        promise.reject("E_APP_NOT_FOUND", "App not found: $packageName")
         return
       }
       
@@ -1500,11 +1800,316 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         Log.i("KioskManager", "=== 应用启动成功 ===")
         Log.i("KioskManager", "包名: $packageName")
         Log.i("KioskManager", "==================")
+        
+        promise.resolve(true)
       } else {
         Log.e("KioskManager", "No launch intent found for package: $packageName")
+        promise.reject("E_NO_LAUNCH_INTENT", "No launch intent found for package: $packageName")
       }
     } catch (e: Exception) {
-      Log.e("KioskManager", "Failed to launch app: ${e.message}")
+      Log.e("KioskManager", "Failed to launch app: ${e.message}", e)
+      promise.reject("E_LAUNCH_FAILED", "Failed to launch app: ${e.message}")
+    }
+  }
+
+  private fun startPollingForInstallCompletion(packageName: String, sessionId: Int) {
+    val context = reactApplicationContext
+    val handler = Handler(Looper.getMainLooper())
+    val packageManager = context.packageManager
+    var attemptCount = 0
+    val maxAttempts = 120 // 最多尝试120次（60秒，每500ms一次）
+    val pollInterval = 500L // 每500ms检查一次
+    
+    // 重置安装完成标志
+    isInstallComplete = false
+    
+    Log.i("KioskManager", "开始轮询检测安装状态: $packageName, sessionId: $sessionId")
+    
+    val checkRunnable = object : Runnable {
+      override fun run() {
+        // 如果已经通过广播接收器收到安装完成通知，停止轮询
+        if (isInstallComplete) {
+          Log.i("KioskManager", "安装已完成（通过广播接收器），停止轮询: $packageName")
+          pollingRunnable = null
+          return
+        }
+        
+        attemptCount++
+        
+        try {
+          // 使用基于时间的估算进度（每10次更新一次）
+          if (attemptCount % 10 == 0) {
+            val estimatedProgress = (attemptCount * 90 / maxAttempts).coerceAtMost(90)
+            sendInstallStatusEvent("installing", packageName, "正在安装中... ($estimatedProgress%)", estimatedProgress)
+            Log.d("KioskManager", "安装进度估算: $estimatedProgress% (尝试次数: $attemptCount/$maxAttempts)")
+          }
+          
+          // 检测应用是否安装/更新完成 - 通过版本号变化来判断
+          var installDetected = false
+          var currentVersionCode: Long? = null
+          
+          // 尝试获取当前包的版本号
+          try {
+            val currentPackageInfo = packageManager.getPackageInfo(packageName, 0)
+            currentVersionCode = currentPackageInfo.longVersionCode
+            Log.d("KioskManager", "检测到包存在: $packageName, 版本号: $currentVersionCode")
+          } catch (e: PackageManager.NameNotFoundException) {
+            // PackageManager API 检测不到，尝试使用 shell 命令
+            try {
+              val process = Runtime.getRuntime().exec("pm list packages")
+              val reader = BufferedReader(InputStreamReader(process.inputStream))
+              var line: String?
+              var foundInShell = false
+              
+              while (reader.readLine().also { line = it } != null) {
+                if (line!!.trim().equals("package:$packageName", ignoreCase = true)) {
+                  foundInShell = true
+                  break
+                }
+              }
+              
+              reader.close()
+              process.waitFor()
+              
+              if (foundInShell) {
+                // 包在 shell 中能找到，但 PackageManager API 找不到，可能是权限问题
+                // 尝试直接获取版本号
+                try {
+                  val process2 = Runtime.getRuntime().exec("dumpsys package $packageName | grep versionCode")
+                  val reader2 = BufferedReader(InputStreamReader(process2.inputStream))
+                  val versionLine = reader2.readLine()
+                  reader2.close()
+                  process2.waitFor()
+                  
+                  if (versionLine != null && versionLine.contains("versionCode")) {
+                    // 提取版本号（简化处理，实际可能需要更复杂的解析）
+                    Log.d("KioskManager", "通过 shell 检测到包存在: $packageName")
+                    // 如果包在 shell 中存在，我们认为安装可能完成了，但需要谨慎判断
+                    // 这里暂时不设置 installDetected，等待后续轮询
+                  }
+                } catch (e2: Exception) {
+                  Log.d("KioskManager", "无法通过 shell 获取版本号: ${e2.message}")
+                }
+              }
+            } catch (e2: Exception) {
+              Log.d("KioskManager", "使用 shell 命令检测失败: ${e2.message}")
+            }
+            
+            // 如果包不存在
+            if (currentVersionCode == null) {
+              if (pendingInstallOldVersionCode == null) {
+                if (attemptCount % 10 == 0) {
+                  Log.d("KioskManager", "等待应用安装完成: $packageName (尝试次数: $attemptCount/$maxAttempts)")
+                }
+              } else {
+                // 包之前存在但现在不存在，可能安装失败
+                Log.w("KioskManager", "警告: 包之前存在但现在不存在，可能安装失败: $packageName")
+              }
+            }
+          } catch (e: Exception) {
+            Log.w("KioskManager", "检测安装状态时出现异常: ${e.message}")
+          }
+          
+          // 如果获取到了版本号，判断是否安装完成
+          if (currentVersionCode != null) {
+            if (pendingInstallOldVersionCode == null) {
+              // 首次安装：包不存在 -> 包存在，说明安装成功
+              // 但需要确保不是一开始就存在的（至少等待几次检测）
+              if (attemptCount >= 3) {
+                installDetected = true
+                Log.i("KioskManager", "✓ 检测到应用首次安装成功: $packageName, 版本号: $currentVersionCode (尝试次数: $attemptCount)")
+              } else {
+                Log.d("KioskManager", "等待更多检测次数确认首次安装: $packageName (尝试次数: $attemptCount)")
+              }
+            } else {
+              // 更新安装：版本号变化，说明更新成功
+              if (currentVersionCode != pendingInstallOldVersionCode) {
+                installDetected = true
+                Log.i("KioskManager", "✓ 检测到应用更新成功: $packageName, 旧版本: ${pendingInstallOldVersionCode}, 新版本: $currentVersionCode (尝试次数: $attemptCount)")
+              } else {
+                if (attemptCount % 10 == 0) {
+                  Log.d("KioskManager", "等待应用更新完成: $packageName (当前版本: $currentVersionCode, 旧版本: ${pendingInstallOldVersionCode}, 等待版本变化...) (尝试次数: $attemptCount/$maxAttempts)")
+                }
+              }
+            }
+          }
+          
+          // 如果检测到安装/更新完成
+          if (installDetected) {
+            Log.i("KioskManager", "应用安装/更新完成，准备启动: $packageName")
+            // 标记安装完成
+            isInstallComplete = true
+            pollingRunnable = null
+            // 清除旧版本号记录
+            pendingInstallOldVersionCode = null
+            // 发送100%进度和安装成功事件（如果还没有通过接收器发送）
+            if (pendingInstallPackageName == packageName) {
+              sendInstallStatusEvent("installing", packageName, "安装完成", 100)
+              sendInstallStatusEvent("installed", packageName, "安装成功")
+            }
+            // 延迟1秒启动，给 PackageManager 足够时间刷新缓存
+            handler.postDelayed({
+              try {
+                Log.i("KioskManager", "准备启动应用: $packageName")
+                sendInstallStatusEvent("launching", packageName, "正在启动应用")
+                launchAppInternal(packageName)
+              } catch (e: Exception) {
+                Log.e("KioskManager", "启动应用失败: ${e.message}", e)
+                sendInstallStatusEvent("launch_failed", packageName, "启动失败: ${e.message}")
+              }
+            }, 1000)
+            return
+          }
+          
+          // 如果还未达到最大尝试次数且未完成安装，继续轮询
+          if (attemptCount < maxAttempts && !isInstallComplete) {
+            pollingRunnable = this
+            handler.postDelayed(this, pollInterval)
+          } else if (attemptCount >= maxAttempts && !isInstallComplete) {
+            Log.w("KioskManager", "安装检测超时，尝试直接启动: $packageName (尝试次数: $attemptCount)")
+            isInstallComplete = true
+            pollingRunnable = null
+            sendInstallStatusEvent("timeout", packageName, "安装检测超时，尝试启动")
+            // 超时后等待2秒再尝试启动，给系统更多时间完成安装
+            handler.postDelayed({
+              try {
+                sendInstallStatusEvent("launching", packageName, "正在启动应用")
+                launchAppInternal(packageName)
+              } catch (e: Exception) {
+                Log.e("KioskManager", "最终启动尝试失败: ${e.message}", e)
+                sendInstallStatusEvent("launch_failed", packageName, "启动失败: ${e.message}")
+              }
+            }, 2000)
+          }
+        } catch (e: Exception) {
+          Log.e("KioskManager", "轮询检测安装状态时出错: ${e.message}", e)
+          // 即使出错也继续尝试（如果还没完成）
+          if (attemptCount < maxAttempts && !isInstallComplete) {
+            pollingRunnable = this
+            handler.postDelayed(this, pollInterval)
+          } else {
+            isInstallComplete = true
+            pollingRunnable = null
+            sendInstallStatusEvent("error", packageName, "检测安装状态时出错: ${e.message}")
+          }
+        }
+      }
+    }
+    
+    // 保存 runnable 引用
+    pollingRunnable = checkRunnable
+    // 开始轮询（延迟1秒开始第一次检查，给安装进程一些启动时间）
+    handler.postDelayed(checkRunnable, 1000)
+  }
+
+  private fun launchAppInternal(packageName: String, retryCount: Int = 0) {
+    try {
+      val context = reactApplicationContext
+      val packageManager = context.packageManager
+      val maxRetries = 20 // 最多重试20次
+      val retryDelay = if (retryCount < 5) 1000L else 2000L // 前5次1秒，之后2秒
+      
+      Log.i("KioskManager", "尝试启动应用: $packageName (重试次数: $retryCount)")
+      
+      // 检测应用是否已安装 - 使用 getApplicationInfo 和 shell 命令
+      var isInstalled = false
+      try {
+        packageManager.getApplicationInfo(packageName, 0)
+        isInstalled = true
+        Log.i("KioskManager", "✓ 检测到应用已安装: $packageName")
+      } catch (e: PackageManager.NameNotFoundException) {
+        // 如果 PackageManager API 找不到，尝试使用 shell 命令
+        try {
+          val process = Runtime.getRuntime().exec("pm list packages")
+          val reader = BufferedReader(InputStreamReader(process.inputStream))
+          var line: String?
+          
+          while (reader.readLine().also { line = it } != null) {
+            if (line!!.trim().equals("package:$packageName", ignoreCase = true)) {
+              isInstalled = true
+              Log.i("KioskManager", "✓ 通过 pm list packages 检测到应用已安装: $packageName")
+              break
+            }
+          }
+          
+          reader.close()
+          process.waitFor()
+          
+          if (!isInstalled) {
+            Log.w("KioskManager", "✗ 应用未找到: $packageName")
+          }
+        } catch (e2: Exception) {
+          Log.w("KioskManager", "✗ 应用未找到: $packageName")
+        }
+      } catch (e: Exception) {
+        Log.w("KioskManager", "检查应用安装状态时出现异常: ${e.message}")
+      }
+      
+      // 获取启动意图
+      val launchIntent = if (isInstalled) {
+        packageManager.getLaunchIntentForPackage(packageName)
+      } else {
+        null
+      }
+      
+      // 如果应用未安装且还有重试次数，延迟后重试
+      if (!isInstalled && retryCount < maxRetries) {
+        Log.w("KioskManager", "应用未找到，${retryDelay}ms 后重试 (${retryCount + 1}/$maxRetries): $packageName")
+        Handler(Looper.getMainLooper()).postDelayed({
+          launchAppInternal(packageName, retryCount + 1)
+        }, retryDelay)
+        return
+      }
+      
+      // 如果重试次数用完还是找不到，报告错误
+      if (!isInstalled) {
+        Log.e("KioskManager", "应用未找到，已达到最大重试次数 ($maxRetries): $packageName")
+        sendInstallStatusEvent("launch_failed", packageName, "应用未找到，可能安装失败")
+        return
+      }
+      
+      // 启动应用
+      if (launchIntent != null) {
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        
+        context.startActivity(launchIntent)
+        
+        Log.i("KioskManager", "=== 应用启动成功 ===")
+        Log.i("KioskManager", "包名: $packageName")
+        Log.i("KioskManager", "重试次数: $retryCount")
+        Log.i("KioskManager", "==================")
+        
+        // 发送启动成功事件
+        sendInstallStatusEvent("launched", packageName, "应用启动成功")
+        
+                // 清除待安装信息
+                if (pendingInstallPackageName == packageName) {
+                  pendingInstallPackageName = null
+                  pendingInstallSessionId = null
+                  pendingInstallOldVersionCode = null
+                }
+      } else {
+        Log.e("KioskManager", "No launch intent found for package: $packageName")
+        sendInstallStatusEvent("launch_failed", packageName, "找不到启动意图")
+      }
+    } catch (e: Exception) {
+      Log.e("KioskManager", "Failed to launch app: ${e.message}", e)
+      sendInstallStatusEvent("launch_failed", packageName, "启动失败: ${e.message}")
+    }
+  }
+
+  override fun onCatalystInstanceDestroy() {
+    super.onCatalystInstanceDestroy()
+    // 清理接收器
+    try {
+      if (installReceiver != null) {
+        reactApplicationContext.unregisterReceiver(installReceiver)
+        installReceiver = null
+      }
+    } catch (e: Exception) {
+      Log.e("KioskManager", "注销安装接收器失败: ${e.message}")
     }
   }
 }
