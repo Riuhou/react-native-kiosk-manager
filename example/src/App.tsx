@@ -77,6 +77,20 @@ export default function App() {
   type TabKey = 'kiosk' | 'update' | 'files' | 'av';
   const [activeTab, setActiveTab] = useState<TabKey>('kiosk');
 
+  // 初始化检查开机自启状态
+  useEffect(() => {
+    const checkBootAutoStart = async () => {
+      try {
+        const isEnabled = await KioskManager.isBootAutoStartEnabled();
+        setBootAutoStart(isEnabled);
+      } catch (error) {
+        // 静默失败，不影响其他功能
+        console.log('Failed to check boot auto start status:', error);
+      }
+    };
+    checkBootAutoStart();
+  }, []);
+
   // 设置下载进度监听器
   useEffect(() => {
     const handleProgress = (progress: DownloadProgress) => {
@@ -332,13 +346,22 @@ export default function App() {
     }
   };
 
-  const handleDisableBootAutoStart = async () => {
+  const handleToggleBootAutoStart = async () => {
     try {
-      await KioskManager.enableBootAutoStart(false);
-      Alert.alert('Success', 'Boot auto start disabled');
-      setBootAutoStart(false);
+      // 如果当前状态未知，先检查一次
+      let currentState = bootAutoStart;
+      if (currentState === null) {
+        currentState = await KioskManager.isBootAutoStartEnabled();
+        setBootAutoStart(currentState);
+      }
+      
+      // 根据当前状态切换
+      const newState = !currentState;
+      await KioskManager.enableBootAutoStart(newState);
+      setBootAutoStart(newState);
+      Alert.alert('Success', newState ? '开机自启已启用' : '开机自启已禁用');
     } catch (error) {
-      Alert.alert('Error', 'Failed to disable boot auto start');
+      Alert.alert('Error', '切换开机自启状态失败');
     }
   };
 
@@ -492,7 +515,7 @@ export default function App() {
       });
       console.log('==================');
 
-      Alert.alert('Success', `Found ${files.length} downloaded files`);
+      // Alert.alert('Success', `Found ${files.length} downloaded files`);
     } catch (error) {
       console.error('获取文件列表失败:', error);
       Alert.alert('Error', `Failed to get downloaded files: ${error}`);
@@ -1017,14 +1040,17 @@ export default function App() {
           <TouchableOpacity
             style={[
               styles.actionButton,
-              styles.warningButton,
+              bootAutoStart ? styles.successButton : styles.warningButton,
               isDarkMode && styles.darkButton,
               isTablet && styles.tabletActionButton,
             ]}
-            onPress={handleDisableBootAutoStart}
+            onPress={handleToggleBootAutoStart}
           >
-            <Text style={[styles.buttonText, styles.warningButtonText]}>
-              禁用开机自启
+            <Text style={[
+              styles.buttonText,
+              bootAutoStart ? styles.successButtonText : styles.warningButtonText,
+            ]}>
+              {bootAutoStart === null ? '切换开机自启' : (bootAutoStart ? '禁用开机自启' : '开启开机自启')}
             </Text>
           </TouchableOpacity>
         </View>

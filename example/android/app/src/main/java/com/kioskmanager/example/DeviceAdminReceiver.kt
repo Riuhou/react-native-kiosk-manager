@@ -1,4 +1,5 @@
-package com.tengine.driverday;
-import android.app.admin.DeviceAdminReceiver;
+package com.kioskmanager.example
 
-class DeviceAdminReceiver : DeviceAdminReceiver() {}
+import android.app.admin.DeviceAdminReceiver
+
+class DeviceAdminReceiver : DeviceAdminReceiver()

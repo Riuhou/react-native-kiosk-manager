@@ -27,6 +27,20 @@
         <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
       </intent-filter>
     </receiver>
+    <!-- 安装完成接收器 - 静态注册，即使应用进程被杀死也能接收广播 -->
+    <!-- 监听系统的 PACKAGE_ADDED 广播，这是最可靠的方式 -->
+    <receiver android:name=".InstallCompleteReceiver" android:enabled="true" android:exported="true">
+      <intent-filter>
+        <!-- 监听系统安装完成广播 -->
+        <action android:name="android.intent.action.PACKAGE_ADDED" />
+        <action android:name="android.intent.action.PACKAGE_REPLACED" />
+        <data android:scheme="package" />
+      </intent-filter>
+      <!-- 同时监听自定义的安装完成广播 -->
+      <intent-filter>
+        <action android:name=".INSTALL_COMPLETE" />
+      </intent-filter>
+    </receiver>
     
     <!-- FileProvider for APK installation -->
     <provider

@@ -710,13 +710,37 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   fun downloadApk(url: String, promise: Promise) {
     try {
       val context = reactApplicationContext
-      val fileName = "update_${System.currentTimeMillis()}.apk"
+      
+      // 从 URL 中提取文件名
+      var fileName = extractFileNameFromUrl(url)
       val downloadsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "apk_updates")
       if (!downloadsDir.exists()) {
         downloadsDir.mkdirs()
       }
       
+      val connection = URL(url).openConnection() as HttpURLConnection
+      connection.requestMethod = "GET"
+      connection.connect()
+      
+      if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+        promise.reject("E_DOWNLOAD_FAILED", "HTTP error: ${connection.responseCode}")
+        return
+      }
+      
+      // 尝试从 Content-Disposition 头中获取文件名（更准确）
+      fileName = extractFileNameFromContentDisposition(connection, fileName)
+      
       val apkFile = File(downloadsDir, fileName)
+      
+      // 如果文件已存在，删除它（覆盖）
+      if (apkFile.exists()) {
+        val deleted = apkFile.delete()
+        if (deleted) {
+          Log.i("KioskManager", "已删除现有文件: $fileName")
+        } else {
+          Log.w("KioskManager", "无法删除现有文件: $fileName，将尝试覆盖")
+        }
+      }
       
       // 打印下载开始信息
       Log.i("KioskManager", "=== 开始下载 ===")
@@ -727,15 +751,6 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       Log.i("KioskManager", "目录存在: ${downloadsDir.exists()}")
       Log.i("KioskManager", "目录可写: ${downloadsDir.canWrite()}")
       Log.i("KioskManager", "==================")
-      
-      val connection = URL(url).openConnection() as HttpURLConnection
-      connection.requestMethod = "GET"
-      connection.connect()
-      
-      if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-        promise.reject("E_DOWNLOAD_FAILED", "HTTP error: ${connection.responseCode}")
-        return
-      }
       
       val inputStream: InputStream = connection.inputStream
       val outputStream = FileOutputStream(apkFile)
@@ -784,6 +799,119 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     } catch (e: Exception) {
       Log.e("KioskManager", "Download failed: ${e.message}")
       promise.reject("E_DOWNLOAD_FAILED", "Download failed: ${e.message}")
+    }
+  }
+
+  /**
+   * 从 Content-Disposition HTTP 头中提取文件名
+   */
+  private fun extractFileNameFromContentDisposition(connection: HttpURLConnection, fallbackFileName: String): String {
+    try {
+      val contentDisposition = connection.getHeaderField("Content-Disposition")
+      if (contentDisposition != null) {
+        // Content-Disposition 格式: 
+        // attachment; filename="example.apk"
+        // attachment; filename=example.apk
+        // attachment; filename*=UTF-8''example.apk
+        
+        // 先尝试匹配 filename*=UTF-8''... 格式
+        val filenameStarPattern = Regex("filename\\*=([^;]+)", RegexOption.IGNORE_CASE)
+        val starMatch = filenameStarPattern.find(contentDisposition)
+        if (starMatch != null) {
+          var extractedName = starMatch.groupValues[1].trim()
+          
+          // 处理 UTF-8'' 前缀
+          if (extractedName.contains("''")) {
+            extractedName = extractedName.substringAfter("''")
+          }
+          
+          // 去掉引号
+          extractedName = extractedName.trim('"', '\'')
+          
+          // URL 解码
+          try {
+            extractedName = java.net.URLDecoder.decode(extractedName, "UTF-8")
+          } catch (e: Exception) {
+            // 如果解码失败，使用原始名称
+          }
+          
+          // 清理文件名
+          extractedName = sanitizeFileName(extractedName)
+          
+          if (extractedName.isNotEmpty() && extractedName.endsWith(".apk", ignoreCase = true)) {
+            Log.i("KioskManager", "从 Content-Disposition (filename*) 提取的文件名: $extractedName")
+            return extractedName
+          }
+        }
+        
+        // 尝试匹配 filename="..." 或 filename=... 格式
+        val filenamePattern = Regex("filename=([^;]+)", RegexOption.IGNORE_CASE)
+        val match = filenamePattern.find(contentDisposition)
+        if (match != null) {
+          var extractedName = match.groupValues[1].trim()
+          
+          // 去掉引号
+          extractedName = extractedName.trim('"', '\'')
+          
+          // 清理文件名
+          extractedName = sanitizeFileName(extractedName)
+          
+          // 确保以 .apk 结尾
+          if (extractedName.isNotEmpty() && extractedName.endsWith(".apk", ignoreCase = true)) {
+            Log.i("KioskManager", "从 Content-Disposition (filename) 提取的文件名: $extractedName")
+            return extractedName
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.w("KioskManager", "从 Content-Disposition 提取文件名失败: ${e.message}")
+    }
+    return fallbackFileName
+  }
+
+  /**
+   * 清理文件名，移除不安全的字符
+   */
+  private fun sanitizeFileName(fileName: String): String {
+    var cleaned = fileName
+    // 移除不安全的字符，保留字母、数字、点、下划线、连字符
+    cleaned = cleaned.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+    // 限制文件名长度
+    if (cleaned.length > 255) {
+      val extension = if (cleaned.endsWith(".apk", ignoreCase = true)) ".apk" else ""
+      val nameWithoutExt = cleaned.substring(0, cleaned.length - extension.length)
+      cleaned = "${nameWithoutExt.take(255 - extension.length)}$extension"
+    }
+    return cleaned
+  }
+
+  /**
+   * 从 URL 中提取文件名
+   * 如果 URL 中没有有效的文件名，则使用默认名称
+   */
+  private fun extractFileNameFromUrl(url: String): String {
+    try {
+      val urlObj = URL(url)
+      var fileName = urlObj.path.substringAfterLast('/')
+      
+      // 去掉查询参数和锚点
+      fileName = fileName.split('?')[0].split('#')[0]
+      
+      // 清理文件名
+      fileName = sanitizeFileName(fileName)
+      
+      // 如果文件名为空或不以 .apk 结尾，使用默认名称
+      if (fileName.isEmpty() || !fileName.endsWith(".apk", ignoreCase = true)) {
+        val defaultName = "app_${System.currentTimeMillis()}.apk"
+        Log.i("KioskManager", "无法从 URL 提取有效文件名，使用默认名称: $defaultName")
+        return defaultName
+      }
+      
+      Log.i("KioskManager", "从 URL 提取的文件名: $fileName")
+      return fileName
+    } catch (e: Exception) {
+      Log.w("KioskManager", "提取文件名失败: ${e.message}，使用默认名称")
+      return "app_${System.currentTimeMillis()}.apk"
     }
   }
 
@@ -1303,6 +1431,16 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       Log.i("KioskManager", "目标包名: $targetPackageName")
       Log.i("KioskManager", "新版本号: $newVersionCode")
       
+      // 保存待启动的包名到 SharedPreferences，供 InstallCompleteReceiver 使用
+      // 这样即使应用进程被杀死，静态注册的接收器也能知道要启动哪个应用
+      try {
+        val prefs = context.getSharedPreferences("kiosk_manager_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("pending_launch_package", targetPackageName).apply()
+        Log.i("KioskManager", "已保存待启动包名到 SharedPreferences: $targetPackageName")
+      } catch (e: Exception) {
+        Log.w("KioskManager", "保存待启动包名到 SharedPreferences 失败: ${e.message}")
+      }
+      
       // 记录安装前的版本号（如果包已存在）
       try {
         val existingPackageInfo = context.packageManager.getPackageInfo(targetPackageName, 0)
@@ -1363,14 +1501,23 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       outputStream.close()
       
       // 创建IntentSender用于安装回调
+      // 使用静态注册的接收器，即使应用进程被杀死也能接收广播
+      // 这对于应用自己更新自己的场景非常重要
+      // 注意：只设置包名和 Action，让系统自动找到静态注册的接收器
+      // 不设置 setClass，因为应用更新自己时，旧版本的类引用可能失效
+      val intent = Intent("com.kioskmanager.INSTALL_COMPLETE").apply {
+        setPackage(context.packageName)
+        // 传递包名信息，因为应用更新自己时，新版本需要知道要启动哪个包
+        putExtra("target_package_name", targetPackageName)
+      }
       val pendingIntent = android.app.PendingIntent.getBroadcast(
         context, 
         sessionId, 
-        Intent("com.kioskmanager.INSTALL_COMPLETE"), 
+        intent, 
         android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
       )
       
-      // 保存待安装的包名和会话ID，用于接收器
+      // 保存待安装的包名和会话ID，用于接收器（用于动态接收器，作为备份）
       pendingInstallPackageName = targetPackageName
       pendingInstallSessionId = sessionId
       
@@ -2013,10 +2160,31 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       
       // 检测应用是否已安装 - 使用 getApplicationInfo 和 shell 命令
       var isInstalled = false
+      var mainActivity: String? = null
       try {
-        packageManager.getApplicationInfo(packageName, 0)
+        val appInfo = packageManager.getApplicationInfo(packageName, 0)
         isInstalled = true
         Log.i("KioskManager", "✓ 检测到应用已安装: $packageName")
+        
+        // 尝试获取主 Activity
+        try {
+          val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+          if (launchIntent != null && launchIntent.component != null) {
+            val component = launchIntent.component!!
+            // am start 命令格式: packageName/.ActivityName 或 packageName/ActivityName
+            // component.className 是完整类名，需要提取短名称
+            val className = component.className
+            val shortName = if (className.startsWith(packageName)) {
+              className.substring(packageName.length + 1) // 去掉包名和点
+            } else {
+              className.substringAfterLast('.') // 如果格式不同，取最后一段
+            }
+            mainActivity = "${component.packageName}/.$shortName"
+            Log.i("KioskManager", "✓ 获取到主 Activity: $mainActivity (完整类名: $className)")
+          }
+        } catch (e: Exception) {
+          Log.w("KioskManager", "无法获取主 Activity: ${e.message}")
+        }
       } catch (e: PackageManager.NameNotFoundException) {
         // 如果 PackageManager API 找不到，尝试使用 shell 命令
         try {
@@ -2037,19 +2205,35 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
           
           if (!isInstalled) {
             Log.w("KioskManager", "✗ 应用未找到: $packageName")
+          } else {
+            // 如果通过 shell 检测到应用，尝试通过 shell 获取主 Activity
+            try {
+              val process2 = Runtime.getRuntime().exec("pm dump $packageName | grep -A 5 'MAIN'")
+              val reader2 = BufferedReader(InputStreamReader(process2.inputStream))
+              var line2: String?
+              while (reader2.readLine().also { line2 = it } != null) {
+                val lineStr = line2 ?: ""
+                if (lineStr.contains("android.intent.action.MAIN") && lineStr.contains(packageName)) {
+                  // 提取 Activity 名称
+                  val activityMatch = Regex("""$packageName[/.]([^\s]+)""").find(lineStr)
+                  if (activityMatch != null) {
+                    mainActivity = "${packageName}/${activityMatch.groupValues[1]}"
+                    Log.i("KioskManager", "✓ 通过 shell 获取到主 Activity: $mainActivity")
+                    break
+                  }
+                }
+              }
+              reader2.close()
+              process2.waitFor()
+            } catch (e2: Exception) {
+              Log.w("KioskManager", "无法通过 shell 获取主 Activity: ${e2.message}")
+            }
           }
         } catch (e2: Exception) {
           Log.w("KioskManager", "✗ 应用未找到: $packageName")
         }
       } catch (e: Exception) {
         Log.w("KioskManager", "检查应用安装状态时出现异常: ${e.message}")
-      }
-      
-      // 获取启动意图
-      val launchIntent = if (isInstalled) {
-        packageManager.getLaunchIntentForPackage(packageName)
-      } else {
-        null
       }
       
       // 如果应用未安装且还有重试次数，延迟后重试
@@ -2068,31 +2252,138 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         return
       }
       
-      // 启动应用
-      if (launchIntent != null) {
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        
-        context.startActivity(launchIntent)
-        
+      // 检查是否为 Device Owner
+      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+      val isDeviceOwner = dpm.isDeviceOwnerApp(context.packageName)
+      
+      // 方式1: 使用标准 Intent 启动（优先尝试）
+      var launchSuccess = false
+      try {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent != null) {
+          launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+          launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+          launchIntent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+          
+          context.startActivity(launchIntent)
+          launchSuccess = true
+          Log.i("KioskManager", "✓ 使用标准 Intent 启动成功")
+        }
+      } catch (e: Exception) {
+        Log.w("KioskManager", "标准 Intent 启动失败: ${e.message}")
+      }
+      
+      // 方式2: 如果标准方式失败且是 Device Owner，使用 shell 命令启动（更可靠）
+      if (!launchSuccess && isDeviceOwner) {
+        try {
+          Log.i("KioskManager", "尝试使用 shell 命令启动应用")
+          
+          // 如果已知主 Activity，直接启动
+          if (mainActivity != null) {
+            val command = "am start -n $mainActivity -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
+            Log.i("KioskManager", "执行命令: $command")
+            val process = Runtime.getRuntime().exec(command)
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+              launchSuccess = true
+              Log.i("KioskManager", "✓ 使用 shell 命令启动成功 (主 Activity)")
+            } else {
+              val errorReader = BufferedReader(InputStreamReader(process.errorStream))
+              val error = errorReader.readText()
+              Log.w("KioskManager", "Shell 命令启动失败 (exitCode=$exitCode): $error")
+            }
+          } else {
+            // 如果不知道主 Activity，使用包名启动
+            val command = "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $packageName/.MainActivity"
+            Log.i("KioskManager", "执行命令: $command")
+            val process = Runtime.getRuntime().exec(command)
+            var exitCode = process.waitFor()
+            
+            if (exitCode != 0) {
+              // 尝试其他常见的主 Activity 名称
+              val commonActivities = listOf("MainActivity", "SplashActivity", "LauncherActivity", "Main")
+              for (activityName in commonActivities) {
+                val command2 = "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $packageName/.$activityName"
+                Log.i("KioskManager", "尝试命令: $command2")
+                val process2 = Runtime.getRuntime().exec(command2)
+                exitCode = process2.waitFor()
+                if (exitCode == 0) {
+                  launchSuccess = true
+                  Log.i("KioskManager", "✓ 使用 shell 命令启动成功 ($activityName)")
+                  break
+                }
+              }
+            } else {
+              launchSuccess = true
+              Log.i("KioskManager", "✓ 使用 shell 命令启动成功 (MainActivity)")
+            }
+            
+            if (!launchSuccess) {
+              // 最后尝试：使用包名启动（让系统自动选择 Activity）
+              val command3 = "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $packageName"
+              Log.i("KioskManager", "执行命令: $command3")
+              val process3 = Runtime.getRuntime().exec(command3)
+              exitCode = process3.waitFor()
+              if (exitCode == 0) {
+                launchSuccess = true
+                Log.i("KioskManager", "✓ 使用 shell 命令启动成功 (自动选择)")
+              }
+            }
+          }
+        } catch (e: Exception) {
+          Log.w("KioskManager", "Shell 命令启动失败: ${e.message}")
+        }
+      }
+      
+      // 方式3: 如果前两种方式都失败，尝试使用 PackageManager 查询所有 Activity
+      if (!launchSuccess) {
+        try {
+          Log.i("KioskManager", "尝试查询所有 Activity 并启动")
+          val intent = Intent(Intent.ACTION_MAIN)
+          intent.addCategory(Intent.CATEGORY_LAUNCHER)
+          intent.setPackage(packageName)
+          
+          val activities = packageManager.queryIntentActivities(intent, 0)
+          if (activities.isNotEmpty()) {
+            val activityInfo = activities[0].activityInfo
+            val component = ComponentName(activityInfo.packageName, activityInfo.name)
+            val launchIntent = Intent(Intent.ACTION_MAIN).apply {
+              addCategory(Intent.CATEGORY_LAUNCHER)
+              setComponent(component)
+              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+              addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+              addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+              addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            }
+            context.startActivity(launchIntent)
+            launchSuccess = true
+            Log.i("KioskManager", "✓ 通过查询 Activity 启动成功: ${activityInfo.name}")
+          }
+        } catch (e: Exception) {
+          Log.w("KioskManager", "查询 Activity 启动失败: ${e.message}")
+        }
+      }
+      
+      if (launchSuccess) {
         Log.i("KioskManager", "=== 应用启动成功 ===")
         Log.i("KioskManager", "包名: $packageName")
         Log.i("KioskManager", "重试次数: $retryCount")
+        Log.i("KioskManager", "是否为 Device Owner: $isDeviceOwner")
         Log.i("KioskManager", "==================")
         
         // 发送启动成功事件
         sendInstallStatusEvent("launched", packageName, "应用启动成功")
         
-                // 清除待安装信息
-                if (pendingInstallPackageName == packageName) {
-                  pendingInstallPackageName = null
-                  pendingInstallSessionId = null
-                  pendingInstallOldVersionCode = null
-                }
+        // 清除待安装信息
+        if (pendingInstallPackageName == packageName) {
+          pendingInstallPackageName = null
+          pendingInstallSessionId = null
+          pendingInstallOldVersionCode = null
+        }
       } else {
-        Log.e("KioskManager", "No launch intent found for package: $packageName")
-        sendInstallStatusEvent("launch_failed", packageName, "找不到启动意图")
+        Log.e("KioskManager", "所有启动方式都失败: $packageName")
+        sendInstallStatusEvent("launch_failed", packageName, "所有启动方式都失败")
       }
     } catch (e: Exception) {
       Log.e("KioskManager", "Failed to launch app: ${e.message}", e)

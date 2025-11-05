@@ -15,12 +15,8 @@
     </activity>
 
     <!-- Kiosk Manager 的组件 -->
-    <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
-      <intent-filter>
-        <action android:name="android.intent.action.BOOT_COMPLETED" />
-      </intent-filter>
-    </receiver>
-
+    <!-- BootReceiver 和 InstallCompleteReceiver 在库模块中定义，会自动合并 -->
+    
     <receiver android:name=".DeviceAdminReceiver" android:permission="android.permission.BIND_DEVICE_ADMIN" android:exported="true">
       <meta-data android:name="android.app.device_admin" android:resource="@xml/device_admin_receiver" />
       <intent-filter>
