@@ -27,6 +27,7 @@ class InstallCompleteReceiver : BroadcastReceiver() {
         if (context == null || intent == null) return
         
         val action = intent.action
+        val installCompleteAction = "${context.packageName}.INSTALL_COMPLETE"
         Log.i("InstallCompleteReceiver", "收到广播: action=$action")
         
         // 处理系统的 PACKAGE_ADDED 广播（最可靠的方式）
@@ -56,7 +57,7 @@ class InstallCompleteReceiver : BroadcastReceiver() {
         }
         
         // 处理自定义的 INSTALL_COMPLETE 广播（PackageInstaller 的回调）
-        if (action == "com.kioskmanager.INSTALL_COMPLETE") {
+        if (action == installCompleteAction) {
             val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)
             // 优先使用我们传递的包名，如果没有则尝试从系统广播中获取
             var packageName = intent.getStringExtra("target_package_name")

@@ -41,7 +41,7 @@ Although components are automatically merged, you need to manually create the fo
 </device-admin>
 ```
 
-**2. Optional** (if using APK installation features): `android/app/src/main/res/xml/file_provider_paths.xml`
+**2. Optional (only if you rely on the built-in APK install features)**: create `android/app/src/main/res/xml/file_provider_paths.xml`. If your app provides its own `FileProvider` or you don’t use the downloader/installer APIs, you can skip this file.
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -72,6 +72,17 @@ const isOwner = await KioskManager.isDeviceOwner();
 // Clear device owner
 await KioskManager.clearDeviceOwner();
 ```
+
+## APK Installation & Auto-Launch Notes
+
+When using `silentInstallApk`, `silentInstallAndLaunchApk`, or `downloadAndSilentInstallAndLaunchApk`, keep the following in mind:
+
+- **Device Owner required** – Silent install and background launch only work when the calling app is the device owner. Confirm with `await KioskManager.isDeviceOwner()` before invoking the APIs.
+- **Launcher activity needed** – The target APK must expose an activity with `action.MAIN` + `category.LAUNCHER`; otherwise neither the standard intent nor `am start` fallback can bring it to the foreground.
+- **Same-version updates** – If you reinstall an APK without bumping `versionCode`, it must still be re-built/signed so that Android updates the package `lastUpdateTime`. The library now detects either a higher version code **or** a newer `lastUpdateTime` to decide when installation has completed and will auto-start even for same-version hotfixes.
+- **Custom manifest merges** – The install-complete broadcast action is derived from your final applicationId (`${applicationId}.INSTALL_COMPLETE`). Avoid hard-coding another action name in your manifest, or the auto-start broadcast will be missed.
+- **Android 13+ broadcast flag** – Starting with API 33, dynamic receivers must declare whether they are exported. The library registers its install-complete receiver with `Context.RECEIVER_NOT_EXPORTED`; if you override this behaviour, be sure to keep the same flag to prevent runtime registration errors.
+- **Debugging tip** – To verify install broadcasts and launch attempts, capture logs with `adb logcat -v time -s InstallCompleteReceiver KioskManager` immediately after triggering a silent install.
 
 ## DeviceAdminReceiver 配置说明 / DeviceAdminReceiver Setup
 

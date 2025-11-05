@@ -38,7 +38,7 @@
       </intent-filter>
       <!-- 同时监听自定义的安装完成广播 -->
       <intent-filter>
-        <action android:name=".INSTALL_COMPLETE" />
+        <action android:name="${applicationId}.INSTALL_COMPLETE" />
       </intent-filter>
     </receiver>
     

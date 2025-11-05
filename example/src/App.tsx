@@ -25,7 +25,8 @@ export default function App() {
     boolean | null
   >(null);
   const [apkUrl, setApkUrl] = useState<string>(
-    'https://assets.driver-day.com/LATEST/apk/kiosk1.0.apk'
+    'https://assets.driver-day.com/LATEST/apk/kiosk2.apk'
+    // 'https://assets.driver-day.com/LATEST/apk/dd1.0.apk'
   );
   const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(
     null
@@ -892,7 +893,7 @@ export default function App() {
               isDarkMode ? styles.darkText : styles.lightText,
             ]}
           >
-            Kiosk Manager Example12123
+            Kiosk Manager Example
           </Text>
           <Text
             style={[

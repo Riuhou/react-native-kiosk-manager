@@ -57,6 +57,10 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   private var pollingRunnable: Runnable? = null
   private var isInstallComplete: Boolean = false
   private var pendingInstallOldVersionCode: Long? = null // 安装前的版本号
+  private var pendingInstallOldLastUpdateTime: Long? = null // 安装前的最后更新时间
+
+  private val installCompleteAction: String
+    get() = "${reactApplicationContext.packageName}.INSTALL_COMPLETE"
 
   @ReactMethod
   fun startKiosk() {
@@ -1310,9 +1314,9 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       
       // 创建IntentSender用于安装回调
       val pendingIntent = android.app.PendingIntent.getBroadcast(
-        context, 
-        sessionId, 
-        Intent("com.kioskmanager.INSTALL_COMPLETE"), 
+        context,
+        sessionId,
+        Intent(installCompleteAction),
         android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
       )
       
@@ -1445,9 +1449,11 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       try {
         val existingPackageInfo = context.packageManager.getPackageInfo(targetPackageName, 0)
         pendingInstallOldVersionCode = existingPackageInfo.longVersionCode
-        Log.i("KioskManager", "检测到包已存在，当前版本号: ${pendingInstallOldVersionCode}")
+        pendingInstallOldLastUpdateTime = existingPackageInfo.lastUpdateTime
+        Log.i("KioskManager", "检测到包已存在，当前版本号: ${pendingInstallOldVersionCode}, 最后更新时间: ${pendingInstallOldLastUpdateTime}")
       } catch (e: PackageManager.NameNotFoundException) {
         pendingInstallOldVersionCode = null
+        pendingInstallOldLastUpdateTime = null
         Log.i("KioskManager", "包不存在，这是首次安装")
       }
       
@@ -1505,7 +1511,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       // 这对于应用自己更新自己的场景非常重要
       // 注意：只设置包名和 Action，让系统自动找到静态注册的接收器
       // 不设置 setClass，因为应用更新自己时，旧版本的类引用可能失效
-      val intent = Intent("com.kioskmanager.INSTALL_COMPLETE").apply {
+      val intent = Intent(installCompleteAction).apply {
         setPackage(context.packageName)
         // 传递包名信息，因为应用更新自己时，新版本需要知道要启动哪个包
         putExtra("target_package_name", targetPackageName)
@@ -1563,8 +1569,8 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       override fun onReceive(ctx: Context?, intent: Intent?) {
         if (intent == null) return
         
-      val action = intent.action
-      if (action == "com.kioskmanager.INSTALL_COMPLETE") {
+        val action = intent.action
+        if (action == installCompleteAction) {
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)
         // PackageInstaller.EXTRA_PACKAGE_NAME 可能不存在，使用我们保存的包名
         val packageName = intent.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME) ?: pendingInstallPackageName
@@ -1589,6 +1595,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
                 sendInstallStatusEvent("installed", finalPackageName, "安装成功")
                 // 清除旧版本号记录
                 pendingInstallOldVersionCode = null
+                pendingInstallOldLastUpdateTime = null
                 // 如果这是我们正在等待的包，启动应用
                 // 延迟1秒启动，给 PackageManager 足够时间刷新缓存
                 if (finalPackageName == pendingInstallPackageName) {
@@ -1622,41 +1629,57 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
                 pollingRunnable = null
               }
               sendInstallStatusEvent("failed", finalPackageName, "安装失败: $message")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
             PackageInstaller.STATUS_FAILURE_ABORTED -> {
               val finalPackageName = packageName ?: pendingInstallPackageName
               Log.e("KioskManager", "安装已取消: $finalPackageName")
               sendInstallStatusEvent("cancelled", finalPackageName, "安装已取消")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
             PackageInstaller.STATUS_FAILURE_BLOCKED -> {
               val finalPackageName = packageName ?: pendingInstallPackageName
               Log.e("KioskManager", "安装被阻止: $finalPackageName")
               sendInstallStatusEvent("blocked", finalPackageName, "安装被阻止")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
             PackageInstaller.STATUS_FAILURE_CONFLICT -> {
               val finalPackageName = packageName ?: pendingInstallPackageName
               Log.e("KioskManager", "安装冲突: $finalPackageName")
               sendInstallStatusEvent("conflict", finalPackageName, "安装冲突")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
             PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> {
               val finalPackageName = packageName ?: pendingInstallPackageName
               Log.e("KioskManager", "应用不兼容: $finalPackageName")
               sendInstallStatusEvent("incompatible", finalPackageName, "应用不兼容")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
             PackageInstaller.STATUS_FAILURE_INVALID -> {
               val finalPackageName = packageName ?: pendingInstallPackageName
               Log.e("KioskManager", "无效的APK: $finalPackageName")
               sendInstallStatusEvent("invalid", finalPackageName, "无效的APK")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
             PackageInstaller.STATUS_FAILURE_STORAGE -> {
               val finalPackageName = packageName ?: pendingInstallPackageName
               Log.e("KioskManager", "存储空间不足: $finalPackageName")
               sendInstallStatusEvent("storage_error", finalPackageName, "存储空间不足")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
             else -> {
               val finalPackageName = packageName ?: pendingInstallPackageName
               Log.w("KioskManager", "未知安装状态: $status, packageName: $finalPackageName")
               sendInstallStatusEvent("unknown", finalPackageName, "未知状态: $status")
+              pendingInstallOldVersionCode = null
+              pendingInstallOldLastUpdateTime = null
             }
           }
         }
@@ -1664,8 +1687,12 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     }
     
     try {
-      val filter = IntentFilter("com.kioskmanager.INSTALL_COMPLETE")
-      context.registerReceiver(installReceiver, filter)
+      val filter = IntentFilter(installCompleteAction)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        context.registerReceiver(installReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+      } else {
+        context.registerReceiver(installReceiver, filter)
+      }
       Log.i("KioskManager", "安装完成接收器已注册")
     } catch (e: Exception) {
       Log.e("KioskManager", "注册安装接收器失败: ${e.message}")
@@ -1818,7 +1845,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       val pendingIntent = android.app.PendingIntent.getBroadcast(
         context, 
         sessionId, 
-        Intent("com.kioskmanager.INSTALL_COMPLETE"), 
+        Intent(installCompleteAction), 
         android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
       )
       
@@ -1994,12 +2021,14 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
           // 检测应用是否安装/更新完成 - 通过版本号变化来判断
           var installDetected = false
           var currentVersionCode: Long? = null
+          var currentLastUpdateTime: Long? = null
           
           // 尝试获取当前包的版本号
           try {
             val currentPackageInfo = packageManager.getPackageInfo(packageName, 0)
             currentVersionCode = currentPackageInfo.longVersionCode
-            Log.d("KioskManager", "检测到包存在: $packageName, 版本号: $currentVersionCode")
+            currentLastUpdateTime = currentPackageInfo.lastUpdateTime
+            Log.d("KioskManager", "检测到包存在: $packageName, 版本号: $currentVersionCode, 最后更新时间: $currentLastUpdateTime")
           } catch (e: PackageManager.NameNotFoundException) {
             // PackageManager API 检测不到，尝试使用 shell 命令
             try {
@@ -2069,13 +2098,17 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
                 Log.d("KioskManager", "等待更多检测次数确认首次安装: $packageName (尝试次数: $attemptCount)")
               }
             } else {
-              // 更新安装：版本号变化，说明更新成功
-              if (currentVersionCode != pendingInstallOldVersionCode) {
+              val oldVersion = pendingInstallOldVersionCode
+              val oldLastUpdate = pendingInstallOldLastUpdateTime
+              if (oldVersion != null && currentVersionCode != null && currentVersionCode != oldVersion) {
                 installDetected = true
                 Log.i("KioskManager", "✓ 检测到应用更新成功: $packageName, 旧版本: ${pendingInstallOldVersionCode}, 新版本: $currentVersionCode (尝试次数: $attemptCount)")
+              } else if (oldLastUpdate != null && currentLastUpdateTime != null && currentLastUpdateTime > oldLastUpdate) {
+                installDetected = true
+                Log.i("KioskManager", "✓ 检测到应用重新安装成功（版本号未变化，最后更新时间变化）: $packageName, 上次更新时间: $oldLastUpdate, 当前更新时间: $currentLastUpdateTime (尝试次数: $attemptCount)")
               } else {
                 if (attemptCount % 10 == 0) {
-                  Log.d("KioskManager", "等待应用更新完成: $packageName (当前版本: $currentVersionCode, 旧版本: ${pendingInstallOldVersionCode}, 等待版本变化...) (尝试次数: $attemptCount/$maxAttempts)")
+                  Log.d("KioskManager", "等待应用更新完成: $packageName (当前版本: $currentVersionCode, 旧版本: ${pendingInstallOldVersionCode}, 当前更新时间: $currentLastUpdateTime, 旧更新时间: $oldLastUpdate, 等待版本或更新时间变化...) (尝试次数: $attemptCount/$maxAttempts)")
                 }
               }
             }
@@ -2089,6 +2122,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
             pollingRunnable = null
             // 清除旧版本号记录
             pendingInstallOldVersionCode = null
+            pendingInstallOldLastUpdateTime = null
             // 发送100%进度和安装成功事件（如果还没有通过接收器发送）
             if (pendingInstallPackageName == packageName) {
               sendInstallStatusEvent("installing", packageName, "安装完成", 100)
@@ -2117,6 +2151,8 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
             isInstallComplete = true
             pollingRunnable = null
             sendInstallStatusEvent("timeout", packageName, "安装检测超时，尝试启动")
+            pendingInstallOldVersionCode = null
+            pendingInstallOldLastUpdateTime = null
             // 超时后等待2秒再尝试启动，给系统更多时间完成安装
             handler.postDelayed({
               try {
@@ -2138,6 +2174,8 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
             isInstallComplete = true
             pollingRunnable = null
             sendInstallStatusEvent("error", packageName, "检测安装状态时出错: ${e.message}")
+            pendingInstallOldVersionCode = null
+            pendingInstallOldLastUpdateTime = null
           }
         }
       }
@@ -2380,6 +2418,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
           pendingInstallPackageName = null
           pendingInstallSessionId = null
           pendingInstallOldVersionCode = null
+          pendingInstallOldLastUpdateTime = null
         }
       } else {
         Log.e("KioskManager", "所有启动方式都失败: $packageName")

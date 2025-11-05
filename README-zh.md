@@ -41,7 +41,7 @@ npm install react-native-kiosk-manager
 </device-admin>
 ```
 
-**2. 可选创建**（如果使用APK安装功能）: `android/app/src/main/res/xml/file_provider_paths.xml`
+**2. 可选创建**（只有在使用内置 APK 下载/安装能力且宿主 App 没有自定义 FileProvider 时才需要）: `android/app/src/main/res/xml/file_provider_paths.xml`。库模块已经自带了一个默认的 FileProvider 配置，示例应用因此未额外创建；如果你的项目已经有自己的 FileProvider，也可以沿用现有配置。
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -72,6 +72,17 @@ const isOwner = await KioskManager.isDeviceOwner();
 // 清除设备所有者状态
 await KioskManager.clearDeviceOwner();
 ```
+
+## APK 安装与自动启动注意事项
+
+使用 `silentInstallApk`、`silentInstallAndLaunchApk` 或 `downloadAndSilentInstallAndLaunchApk` 时请注意：
+
+- **必须具备设备所有者权限**：静默安装及后台拉起依赖设备所有者能力，调用前请通过 `await KioskManager.isDeviceOwner()` 确认返回值为 `true`。
+- **目标应用需暴露 Launcher Activity**：被安装的 APK 至少要有一个带 `action.MAIN` 与 `category.LAUNCHER` 的 Activity，否则无论标准 Intent 还是 `am start` 兜底都无法拉起界面。
+- **同版本重装也能自动启动**：即使 `versionCode` 未提升，只要重新构建/签名让系统更新该包的 `lastUpdateTime`，库会识别到时间戳变化并视为安装完成，从而继续执行自动启动流程。
+- **Manifest 合并时的广播 Action**：安装完成广播使用 `${applicationId}.INSTALL_COMPLETE` 格式，请避免在宿主或子模块中硬编码其余 Action 名称，以免接收器监听不到事件。
+- **Android 13+ 动态广播限制**：在 API 33 及以上，`registerReceiver` 必须声明导出属性。库内部默认使用 `Context.RECEIVER_NOT_EXPORTED`；如需自定义注册逻辑，请保持相同设置以防注册失败。
+- **调试建议**：触发静默安装后可立即执行 `adb logcat -v time -s InstallCompleteReceiver KioskManager`，方便检查安装广播与自动启动日志。
 
 ## 设备所有者设置指南
 
