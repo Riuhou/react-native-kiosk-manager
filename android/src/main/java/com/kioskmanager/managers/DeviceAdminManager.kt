@@ -1,4 +1,4 @@
-package com.riuhou.kioskmanager
+package com.riuhou.kioskmanager.managers
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
@@ -7,6 +7,7 @@ import android.content.Intent
 import android.util.Log
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
+import com.riuhou.kioskmanager.DeviceAdminReceiver
 
 /**
  * 设备管理员管理器 - 处理设备管理员相关功能

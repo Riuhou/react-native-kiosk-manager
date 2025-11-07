@@ -1,4 +1,4 @@
-package com.riuhou.kioskmanager
+package com.riuhou.kioskmanager.managers
 
 import android.content.Context
 import android.media.AudioManager

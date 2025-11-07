@@ -40,6 +40,13 @@ import android.content.IntentFilter
 import kotlin.math.roundToInt
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import com.riuhou.kioskmanager.managers.BrightnessManager
+import com.riuhou.kioskmanager.managers.VolumeManager
+import com.riuhou.kioskmanager.managers.SystemObserver
+import com.riuhou.kioskmanager.managers.DeviceAdminManager
+import com.riuhou.kioskmanager.managers.KioskModeManager
+import com.riuhou.kioskmanager.managers.ApkDownloadManager
+import com.riuhou.kioskmanager.managers.AppLaunchManager
 
 class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {

@@ -1,4 +1,4 @@
-package com.riuhou.kioskmanager
+package com.riuhou.kioskmanager.managers
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
