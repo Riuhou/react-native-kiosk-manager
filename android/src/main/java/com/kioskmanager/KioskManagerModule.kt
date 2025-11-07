@@ -1313,11 +1313,19 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       outputStream.close()
       
       // 创建IntentSender用于安装回调
+      // Android 12+ (API 31) 要求使用 FLAG_MUTABLE，否则使用 FLAG_IMMUTABLE
+      // 使用常量值避免低版本 SDK 编译错误（FLAG_MUTABLE = 0x02000000）
+      val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Android 12+ requires mutable PendingIntent for PackageInstaller
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or 0x02000000 // FLAG_MUTABLE
+      } else {
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+      }
       val pendingIntent = android.app.PendingIntent.getBroadcast(
         context,
         sessionId,
         Intent(installCompleteAction),
-        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        pendingIntentFlags
       )
       
       // 提交安装
@@ -1516,11 +1524,19 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
         // 传递包名信息，因为应用更新自己时，新版本需要知道要启动哪个包
         putExtra("target_package_name", targetPackageName)
       }
+      // Android 12+ (API 31) 要求使用 FLAG_MUTABLE，否则使用 FLAG_IMMUTABLE
+      // 使用常量值避免低版本 SDK 编译错误（FLAG_MUTABLE = 0x02000000）
+      val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Android 12+ requires mutable PendingIntent for PackageInstaller
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or 0x02000000 // FLAG_MUTABLE
+      } else {
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+      }
       val pendingIntent = android.app.PendingIntent.getBroadcast(
         context, 
         sessionId, 
         intent, 
-        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        pendingIntentFlags
       )
       
       // 保存待安装的包名和会话ID，用于接收器（用于动态接收器，作为备份）
@@ -1842,11 +1858,19 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
       outputStream.close()
       
       // 创建IntentSender用于安装回调
+      // Android 12+ (API 31) 要求使用 FLAG_MUTABLE，否则使用 FLAG_IMMUTABLE
+      // 使用常量值避免低版本 SDK 编译错误（FLAG_MUTABLE = 0x02000000）
+      val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Android 12+ requires mutable PendingIntent for PackageInstaller
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or 0x02000000 // FLAG_MUTABLE
+      } else {
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+      }
       val pendingIntent = android.app.PendingIntent.getBroadcast(
         context, 
         sessionId, 
         Intent(installCompleteAction), 
-        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        pendingIntentFlags
       )
       
       // 提交安装

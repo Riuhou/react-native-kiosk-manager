@@ -1,6 +1,6 @@
 {
   "name": "react-native-kiosk-manager",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "A React Native module for Android Kiosk mode, auto start on boot, and lock task management.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
