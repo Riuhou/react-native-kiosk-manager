@@ -1,82 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Text,
   View,
-  StyleSheet,
-  Alert,
-  useColorScheme,
   ScrollView,
   Dimensions,
-  TouchableOpacity,
   StatusBar,
-  TextInput,
 } from 'react-native';
 import KioskManager, {
   type DownloadResult,
   type DownloadProgress,
   type DownloadedFile,
   type InstallStatus,
+  type ScheduledPowerSettings,
 } from 'react-native-kiosk-manager';
+import TabBar, { type TabKey } from './components/TabBar';
+import KioskControlTab from './components/KioskControlTab';
+import ApkUpdateTab from './components/ApkUpdateTab';
+import FileManagementTab from './components/FileManagementTab';
+import BrightnessVolumeTab from './components/BrightnessVolumeTab';
+import PowerScheduleTab from './components/PowerScheduleTab';
+import { useAppStyles } from './utils/styles';
+import { createSafeAlert } from './utils/safeAlert';
 
 export default function App() {
+  // 用于跟踪组件是否已挂载，避免在卸载后显示 Alert
+  const isMountedRef = useRef(true);
+  const safeAlert = createSafeAlert(isMountedRef);
+
+  const { isDarkMode, styles } = useAppStyles();
+  const { width, height } = Dimensions.get('window');
+  const isTablet = width >= 768;
+  const isLandscape = width > height;
+
+  // Kiosk 控制相关状态
   const [bootAutoStart, setBootAutoStart] = useState<boolean | null>(null);
   const [isDeviceOwner, setIsDeviceOwner] = useState<boolean | null>(null);
-  const [isLockTaskPackageSetup, setIsLockTaskPackageSetup] = useState<
-    boolean | null
-  >(null);
-  const [apkUrl, setApkUrl] = useState<string>(
-    'https://assets.driver-day.com/LATEST/apk/kiosk2.apk'
-    // 'https://assets.driver-day.com/LATEST/apk/dd1.0.apk'
-  );
-  const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(
-    null
-  );
+  const [isLockTaskPackageSetup, setIsLockTaskPackageSetup] = useState<boolean | null>(null);
+
+  // APK 更新相关状态
+  const [apkUrl, setApkUrl] = useState<string>('https://assets.driver-day.com/LATEST/apk/kiosk2.apk');
+  const [downloadResult, setDownloadResult] = useState<DownloadResult | null>(null);
   const [isInstalling, setIsInstalling] = useState<boolean>(false);
   const [packageName, setPackageName] = useState<string>('com.kioskmanager.example');
   const [isLaunching, setIsLaunching] = useState<boolean>(false);
   const [isAppInstalledStatus, setIsAppInstalledStatus] = useState<boolean | null>(null);
   const [isCheckingInstall, setIsCheckingInstall] = useState<boolean>(false);
-  const [downloadProgress, setDownloadProgress] =
-    useState<DownloadProgress | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadedFiles, setDownloadedFiles] = useState<DownloadedFile[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState<boolean>(false);
   const [installStatus, setInstallStatus] = useState<InstallStatus | null>(null);
-  const colorScheme = useColorScheme();
-  const isDarkMode = colorScheme === 'dark';
 
-  // 亮度/音量演示相关状态
+  // 亮度/音量相关状态
   const [hasWriteSettings, setHasWriteSettings] = useState<boolean | null>(null);
-  const [systemBrightness, setSystemBrightness] = useState<number | null>(null); // 0-255
-  const [appBrightness, setAppBrightness] = useState<number | null>(null); // -1 或 0-1
-  const audioStreams: Array<{
-    key: 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf';
-    label: string;
-  }> = [
-    { key: 'music', label: '媒体(music)' },
-    { key: 'ring', label: '铃声(ring)' },
-    { key: 'alarm', label: '闹钟(alarm)' },
-    { key: 'notification', label: '通知(notification)' },
-    { key: 'system', label: '系统(system)' },
-    { key: 'voice_call', label: '通话(voice_call)' },
-    { key: 'dtmf', label: '拨号(dtmf)' },
-  ];
-  const [volumes, setVolumes] = useState<Record<string, number>>({}); // 0-1 比例
+  const [systemBrightness, setSystemBrightness] = useState<number | null>(null);
+  const [appBrightness, setAppBrightness] = useState<number | null>(null);
+  const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [globalVolume, setGlobalVolume] = useState<number | null>(null);
   const [mutedMap, setMutedMap] = useState<Record<string, boolean>>({});
   const [globalMuted, setGlobalMuted] = useState<boolean | null>(null);
   const [ringerMode, setRingerMode] = useState<'silent' | 'vibrate' | 'normal' | null>(null);
   const [hasDndAccess, setHasDndAccess] = useState<boolean | null>(null);
-  const [streamsOpen, setStreamsOpen] = useState<boolean>(false);
 
-  // 获取屏幕尺寸用于响应式设计
-  const { width, height } = Dimensions.get('window');
-  const isTablet = width >= 768;
-  const isLandscape = width > height;
+  // 定时开关机相关状态
+  const [scheduledShutdown, setScheduledShutdown] = useState<ScheduledPowerSettings | null>(null);
+  const [scheduledBoot, setScheduledBoot] = useState<ScheduledPowerSettings | null>(null);
+  const [shutdownHour, setShutdownHour] = useState<string>('22');
+  const [shutdownMinute, setShutdownMinute] = useState<string>('0');
+  const [shutdownRepeat, setShutdownRepeat] = useState<boolean>(true);
+  const [bootHour, setBootHour] = useState<string>('8');
+  const [bootMinute, setBootMinute] = useState<string>('0');
+  const [bootRepeat, setBootRepeat] = useState<boolean>(true);
   
   // 选项卡
-  type TabKey = 'kiosk' | 'update' | 'files' | 'av';
   const [activeTab, setActiveTab] = useState<TabKey>('kiosk');
+
+  // 组件卸载时设置标志
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // 初始化检查开机自启状态
   useEffect(() => {
@@ -85,11 +90,39 @@ export default function App() {
         const isEnabled = await KioskManager.isBootAutoStartEnabled();
         setBootAutoStart(isEnabled);
       } catch (error) {
-        // 静默失败，不影响其他功能
         console.log('Failed to check boot auto start status:', error);
       }
     };
     checkBootAutoStart();
+  }, []);
+
+  // 初始化检查定时开关机设置
+  useEffect(() => {
+    const checkScheduledPower = async () => {
+      try {
+        const shutdown = await KioskManager.getScheduledShutdown();
+        setScheduledShutdown(shutdown);
+        if (shutdown) {
+          setShutdownHour(shutdown.hour.toString());
+          setShutdownMinute(shutdown.minute.toString());
+          setShutdownRepeat(shutdown.repeat);
+        }
+      } catch (error) {
+        console.log('Failed to check scheduled shutdown:', error);
+      }
+      try {
+        const boot = await KioskManager.getScheduledBoot();
+        setScheduledBoot(boot);
+        if (boot) {
+          setBootHour(boot.hour.toString());
+          setBootMinute(boot.minute.toString());
+          setBootRepeat(boot.repeat);
+        }
+      } catch (error) {
+        console.log('Failed to check scheduled boot:', error);
+      }
+    };
+    checkScheduledPower();
   }, []);
 
   // 设置下载进度监听器
@@ -99,7 +132,6 @@ export default function App() {
     };
 
     KioskManager.addDownloadProgressListener(handleProgress);
-
     return () => {
       KioskManager.removeDownloadProgressListener(handleProgress);
     };
@@ -111,12 +143,18 @@ export default function App() {
       console.log('安装状态更新:', status);
       setInstallStatus(status);
       
-      // 根据状态更新 isInstalling
-      if (status.status === 'installed' || status.status === 'launched' || 
-          status.status === 'failed' || status.status === 'cancelled' || 
-          status.status === 'blocked' || status.status === 'conflict' || 
-          status.status === 'incompatible' || status.status === 'invalid' || 
-          status.status === 'storage_error' || status.status === 'launch_failed') {
+      if (
+        status.status === 'installed' ||
+        status.status === 'launched' ||
+        status.status === 'failed' ||
+        status.status === 'cancelled' ||
+        status.status === 'blocked' ||
+        status.status === 'conflict' ||
+        status.status === 'incompatible' ||
+        status.status === 'invalid' ||
+        status.status === 'storage_error' ||
+        status.status === 'launch_failed'
+      ) {
         setIsInstalling(false);
       } else if (status.status === 'installing' || status.status === 'launching') {
         setIsInstalling(true);
@@ -124,7 +162,6 @@ export default function App() {
     };
 
     KioskManager.addInstallStatusListener(handleInstallStatus);
-
     return () => {
       KioskManager.removeInstallStatusListener(handleInstallStatus);
     };
@@ -147,12 +184,22 @@ export default function App() {
       } catch {}
       try {
         const entries = await Promise.all(
-          audioStreams.map(async (s) => {
+          [
+            'music',
+            'ring',
+            'alarm',
+            'notification',
+            'system',
+            'voice_call',
+            'dtmf',
+          ].map(async (s) => {
             try {
-              const v = await KioskManager.getVolume(s.key);
-              return [s.key, v] as const;
+              const v = await KioskManager.getVolume(
+                s as 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf'
+              );
+              return [s, v] as const;
             } catch {
-              return [s.key, 0] as const;
+              return [s, 0] as const;
             }
           })
         );
@@ -166,12 +213,22 @@ export default function App() {
       } catch {}
       try {
         const mutes = await Promise.all(
-          audioStreams.map(async (s) => {
+          [
+            'music',
+            'ring',
+            'alarm',
+            'notification',
+            'system',
+            'voice_call',
+            'dtmf',
+          ].map(async (s) => {
             try {
-              const m = await KioskManager.isMuted(s.key);
-              return [s.key, !!m] as const;
+              const m = await KioskManager.isMuted(
+                s as 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf'
+              );
+              return [s, !!m] as const;
             } catch {
-              return [s.key, false] as const;
+              return [s, false] as const;
             }
           })
         );
@@ -193,23 +250,32 @@ export default function App() {
       } catch {}
     };
     init();
-    // 启动系统亮度/音量观察
-    try { KioskManager.startObservingSystemAv(); } catch {}
+    try {
+      KioskManager.startObservingSystemAv();
+    } catch {}
 
     // 订阅系统事件
-    const onBrightness = (v: number) => { setSystemBrightness(v); };
+    const onBrightness = (v: number) => {
+      setSystemBrightness(v);
+    };
     const onVolume = (d: { stream: string; index: number; max: number; value: number }) => {
       setVolumes((prev) => ({ ...prev, [d.stream]: Math.max(0, Math.min(1, d.value)) }));
     };
-    const onGlobalVolume = (v: number) => { setGlobalVolume(Math.max(0, Math.min(1, v))); };
-    const onRinger = (m: 'silent' | 'vibrate' | 'normal') => { setRingerMode(m); };
+    const onGlobalVolume = (v: number) => {
+      setGlobalVolume(Math.max(0, Math.min(1, v)));
+    };
+    const onRinger = (m: 'silent' | 'vibrate' | 'normal') => {
+      setRingerMode(m);
+    };
     KioskManager.addSystemBrightnessListener(onBrightness);
     KioskManager.addVolumeChangedListener(onVolume);
     KioskManager.addGlobalVolumeChangedListener(onGlobalVolume);
     KioskManager.addRingerModeChangedListener(onRinger);
 
     return () => {
-      try { KioskManager.stopObservingSystemAv(); } catch {}
+      try {
+        KioskManager.stopObservingSystemAv();
+      } catch {}
       KioskManager.removeSystemBrightnessListener(onBrightness);
       KioskManager.removeVolumeChangedListener(onVolume);
       KioskManager.removeGlobalVolumeChangedListener(onGlobalVolume);
@@ -217,102 +283,15 @@ export default function App() {
     };
   }, []);
 
-  // 亮度与音量操作
-  const handleRequestWriteSettings = async () => {
-    try {
-      await KioskManager.requestWriteSettingsPermission();
-      const has = await KioskManager.hasWriteSettingsPermission();
-      setHasWriteSettings(has);
-    } catch (e) {
-      Alert.alert('Error', '请求系统写入设置权限失败');
-    }
-  };
-
-  const handleSetSystemBrightness = async (v: number) => {
-    try {
-      const clamped = Math.max(0, Math.min(255, Math.floor(v)));
-      const ok = await KioskManager.setSystemBrightness(clamped);
-      if (ok) setSystemBrightness(clamped);
-      else Alert.alert('Error', '设置系统亮度失败');
-    } catch (e) {
-      Alert.alert('Error', '设置系统亮度失败');
-    }
-  };
-
-  const handleSetAppBrightness = (v: number) => {
-    const clamped = Math.max(0, Math.min(1, v));
-    try {
-      KioskManager.setAppBrightness(clamped);
-      setAppBrightness(clamped);
-    } catch (e) {
-      Alert.alert('Error', '设置应用亮度失败');
-    }
-  };
-
-  const handleSetVolume = async (
-    stream: 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf',
-    v: number
-  ) => {
-    const clamped = Math.max(0, Math.min(1, v));
-    try {
-      await KioskManager.setVolume(stream, clamped);
-      setVolumes((prev) => ({ ...prev, [stream]: clamped }));
-    } catch (e) {
-      Alert.alert('Error', `设置音量失败: ${stream}`);
-    }
-  };
-
-  const handleToggleMute = async (
-    stream: 'music' | 'ring' | 'alarm' | 'notification' | 'system' | 'voice_call' | 'dtmf'
-  ) => {
-    try {
-      const target = !(mutedMap[stream] ?? false);
-      await KioskManager.setMute(stream, target);
-      setMutedMap((prev) => ({ ...prev, [stream]: target }));
-    } catch (e) {
-      Alert.alert('Error', `设置静音失败: ${stream}`);
-    }
-  };
-
-  const handleToggleGlobalMute = async () => {
-    try {
-      const target = !globalMuted;
-      await KioskManager.setGlobalMute(target);
-      setGlobalMuted(target);
-    } catch (e) {
-      Alert.alert('Error', '设置全局静音失败');
-    }
-  };
-
-  const handleToggleSystemMute = async () => {
-    try {
-      const current = (await KioskManager.getRingerMode()) as 'silent' | 'vibrate' | 'normal';
-      if (current === 'normal') {
-        const granted = await KioskManager.hasNotificationPolicyAccess();
-        if (!granted) {
-          await KioskManager.requestNotificationPolicyAccess();
-          Alert.alert('提示', '请在设置中授予“免打扰权限”，返回应用后再次点击');
-          return;
-        }
-        await KioskManager.setRingerMode('silent');
-        setRingerMode('silent');
-      } else {
-        await KioskManager.setRingerMode('normal');
-        setRingerMode('normal');
-      }
-    } catch (e) {
-      Alert.alert('Error', '切换系统静音失败');
-    }
-  };
-
+  // Kiosk 控制相关函数
   const handleStartKiosk = () => {
     KioskManager.startKiosk();
-    Alert.alert('Success', 'Kiosk mode started');
+    safeAlert('Success', 'Kiosk mode started');
   };
 
   const handleStopKiosk = () => {
     KioskManager.stopKiosk();
-    Alert.alert('Success', 'Kiosk mode stopped');
+    safeAlert('Success', 'Kiosk mode stopped');
   };
 
   const handleCheckBootAutoStart = async () => {
@@ -320,49 +299,44 @@ export default function App() {
       const isEnabled = await KioskManager.isBootAutoStartEnabled();
       setBootAutoStart(isEnabled);
     } catch (error) {
-      Alert.alert('Error', 'Failed to check boot auto start status');
+      safeAlert('Error', 'Failed to check boot auto start status');
     }
   };
 
   const handleRequestDeviceAdmin = async () => {
     try {
       await KioskManager.requestDeviceAdmin();
-      Alert.alert('Success', 'Device admin requested');
+      safeAlert('Success', 'Device admin requested');
     } catch (error) {
-      Alert.alert('Error', 'Failed to request device admin');
+      safeAlert('Error', 'Failed to request device admin');
     }
   };
 
   const handleSetupLockTaskPackage = async () => {
     try {
       await KioskManager.setupLockTaskPackage();
-      Alert.alert('Success', 'Lock task package setup completed');
+      safeAlert('Success', 'Lock task package setup completed');
       setIsLockTaskPackageSetup(true);
     } catch (error) {
-      Alert.alert(
-        'Error',
-        'Failed to setup lock task package. Make sure the app is device owner.'
-      );
+      safeAlert('Error', 'Failed to setup lock task package. Make sure the app is device owner.');
       setIsLockTaskPackageSetup(false);
     }
   };
 
   const handleToggleBootAutoStart = async () => {
     try {
-      // 如果当前状态未知，先检查一次
       let currentState = bootAutoStart;
       if (currentState === null) {
         currentState = await KioskManager.isBootAutoStartEnabled();
         setBootAutoStart(currentState);
       }
       
-      // 根据当前状态切换
       const newState = !currentState;
       await KioskManager.enableBootAutoStart(newState);
       setBootAutoStart(newState);
-      Alert.alert('Success', newState ? '开机自启已启用' : '开机自启已禁用');
+      safeAlert('Success', newState ? '开机自启已启用' : '开机自启已禁用');
     } catch (error) {
-      Alert.alert('Error', '切换开机自启状态失败');
+      safeAlert('Error', '切换开机自启状态失败');
     }
   };
 
@@ -371,13 +345,13 @@ export default function App() {
       const isOwner = await KioskManager.isDeviceOwner();
       setIsDeviceOwner(isOwner);
     } catch (error) {
-      Alert.alert('Error', 'Failed to check device owner status');
+      safeAlert('Error', 'Failed to check device owner status');
     }
   };
 
   const handleClearDeviceOwner = async () => {
     try {
-      Alert.alert(
+      safeAlert(
         'Warning',
         'Are you sure you want to clear device owner? This will remove all device admin privileges.',
         [
@@ -391,25 +365,25 @@ export default function App() {
             onPress: async () => {
               try {
                 await KioskManager.clearDeviceOwner();
-                Alert.alert('Success', 'Device owner cleared successfully');
+                safeAlert('Success', 'Device owner cleared successfully');
                 setIsDeviceOwner(false);
                 setIsLockTaskPackageSetup(false);
               } catch (error) {
-                Alert.alert('Error', 'Failed to clear device owner');
+                safeAlert('Error', 'Failed to clear device owner');
               }
             },
           },
         ]
       );
     } catch (error) {
-      Alert.alert('Error', 'Failed to clear device owner');
+      safeAlert('Error', 'Failed to clear device owner');
     }
   };
 
   // APK 更新相关函数
   const handleDownloadApk = async () => {
     if (!apkUrl.trim()) {
-      Alert.alert('Error', 'Please enter a valid APK URL');
+      safeAlert('Error', 'Please enter a valid APK URL');
       return;
     }
 
@@ -422,34 +396,26 @@ export default function App() {
       setDownloadResult(result);
       setDownloadProgress(null);
 
-      // 在控制台打印下载结果
       console.log('=== 下载完成 ===');
       console.log('文件名:', result.fileName);
       console.log('文件路径:', result.filePath);
       console.log('文件大小:', result.fileSize, '字节');
-      console.log(
-        '文件大小 (MB):',
-        (result.fileSize / 1024 / 1024).toFixed(2),
-        'MB'
-      );
-      console.log('==================');
 
-      Alert.alert(
+      safeAlert(
         'Success',
         `APK downloaded successfully!\nFile: ${result.fileName}\nSize: ${(result.fileSize / 1024 / 1024).toFixed(2)} MB`
       );
     } catch (error) {
       console.error('下载失败:', error);
-      Alert.alert('Error', `Failed to download APK: ${error}`);
+      safeAlert('Error', `Failed to download APK: ${error}`);
     } finally {
       setIsDownloading(false);
     }
   };
 
-
   const handleDownloadAndInstall = async () => {
     if (!apkUrl.trim()) {
-      Alert.alert('Error', 'Please enter a valid APK URL');
+      safeAlert('Error', 'Please enter a valid APK URL');
       return;
     }
 
@@ -457,18 +423,14 @@ export default function App() {
     try {
       console.log('=== 开始下载并安装 ===');
       console.log('下载URL:', apkUrl);
-      console.log('==================');
 
       await KioskManager.downloadAndInstallApk(apkUrl);
 
       console.log('=== 下载并安装完成 ===');
-      console.log('已启动系统安装界面');
-      console.log('==================');
-
-      Alert.alert('Success', 'APK download and installation started');
+      safeAlert('Success', 'APK download and installation started');
     } catch (error) {
       console.error('下载并安装失败:', error);
-      Alert.alert('Error', `Failed to download and install APK: ${error}`);
+      safeAlert('Error', `Failed to download and install APK: ${error}`);
     } finally {
       setIsInstalling(false);
     }
@@ -477,21 +439,18 @@ export default function App() {
   const handleCheckInstallPermission = async () => {
     try {
       const hasPermission = await KioskManager.checkInstallPermission();
-      Alert.alert(
-        'Install Permission',
-        hasPermission ? 'Permission granted' : 'Permission required'
-      );
+      safeAlert('Install Permission', hasPermission ? 'Permission granted' : 'Permission required');
     } catch (error) {
-      Alert.alert('Error', `Failed to check install permission: ${error}`);
+      safeAlert('Error', `Failed to check install permission: ${error}`);
     }
   };
 
   const handleRequestInstallPermission = async () => {
     try {
       await KioskManager.requestInstallPermission();
-      Alert.alert('Success', 'Install permission request sent');
+      safeAlert('Success', 'Install permission request sent');
     } catch (error) {
-      Alert.alert('Error', `Failed to request install permission: ${error}`);
+      safeAlert('Error', `Failed to request install permission: ${error}`);
     }
   };
 
@@ -508,18 +467,10 @@ export default function App() {
         console.log(`文件 ${index + 1}:`, file.fileName);
         console.log('  路径:', file.filePath);
         console.log('  大小:', file.fileSize, '字节');
-        console.log(
-          '  修改时间:',
-          new Date(file.lastModified).toLocaleString()
-        );
-        console.log('  可读:', file.canRead, '可写:', file.canWrite);
       });
-      console.log('==================');
-
-      // Alert.alert('Success', `Found ${files.length} downloaded files`);
     } catch (error) {
       console.error('获取文件列表失败:', error);
-      Alert.alert('Error', `Failed to get downloaded files: ${error}`);
+      safeAlert('Error', `Failed to get downloaded files: ${error}`);
     } finally {
       setIsLoadingFiles(false);
     }
@@ -530,21 +481,17 @@ export default function App() {
       console.log('=== 删除文件 ===');
       console.log('文件路径:', filePath);
       console.log('文件名:', fileName);
-      console.log('==================');
 
       await KioskManager.deleteDownloadedFile(filePath);
 
-      // 更新文件列表
-      const updatedFiles = downloadedFiles.filter(
-        (file) => file.filePath !== filePath
-      );
+      const updatedFiles = downloadedFiles.filter((file) => file.filePath !== filePath);
       setDownloadedFiles(updatedFiles);
 
       console.log('文件删除成功:', fileName);
-      Alert.alert('Success', `File "${fileName}" deleted successfully`);
+      safeAlert('Success', `File "${fileName}" deleted successfully`);
     } catch (error) {
       console.error('删除文件失败:', error);
-      Alert.alert('Error', `Failed to delete file: ${error}`);
+      safeAlert('Error', `Failed to delete file: ${error}`);
     }
   };
 
@@ -552,16 +499,15 @@ export default function App() {
     try {
       console.log('=== 清空所有文件 ===');
       console.log('当前文件数量:', downloadedFiles.length);
-      console.log('==================');
 
       const deletedCount = await KioskManager.clearAllDownloadedFiles();
       setDownloadedFiles([]);
 
       console.log('成功删除', deletedCount, '个文件');
-      Alert.alert('Success', `Cleared ${deletedCount} files successfully`);
+      safeAlert('Success', `Cleared ${deletedCount} files successfully`);
     } catch (error) {
       console.error('清空文件失败:', error);
-      Alert.alert('Error', `Failed to clear files: ${error}`);
+      safeAlert('Error', `Failed to clear files: ${error}`);
     }
   };
 
@@ -570,12 +516,10 @@ export default function App() {
       console.log('=== 安装APK ===');
       console.log('文件路径:', filePath);
       console.log('文件名:', fileName);
-      console.log('==================');
 
-      // 检查安装权限
       const hasPermission = await KioskManager.checkInstallPermission();
       if (!hasPermission) {
-        Alert.alert(
+        safeAlert(
           '需要安装权限',
           '请先授予应用安装未知应用的权限',
           [
@@ -588,21 +532,20 @@ export default function App() {
                 } catch (error) {
                   console.error('请求安装权限失败:', error);
                 }
-              }
-            }
+              },
+            },
           ]
         );
         return;
       }
 
-      // 开始安装
       await KioskManager.installApk(filePath);
       
       console.log('APK安装启动成功');
-      Alert.alert('Success', `开始安装 ${fileName}`);
+      safeAlert('Success', `开始安装 ${fileName}`);
     } catch (error) {
       console.error('安装APK失败:', error);
-      Alert.alert('Error', `Failed to install APK: ${error}`);
+      safeAlert('Error', `Failed to install APK: ${error}`);
     }
   };
 
@@ -611,12 +554,10 @@ export default function App() {
       console.log('=== 静默安装APK ===');
       console.log('文件路径:', filePath);
       console.log('文件名:', fileName);
-      console.log('==================');
 
-      // 检查设备所有者权限
       const isOwner = await KioskManager.isDeviceOwner();
       if (!isOwner) {
-        Alert.alert(
+        safeAlert(
           '需要设备所有者权限',
           '静默安装需要设备所有者权限，请先设置设备所有者',
           [
@@ -629,21 +570,20 @@ export default function App() {
                 } catch (error) {
                   console.error('请求设备管理员权限失败:', error);
                 }
-              }
-            }
+              },
+            },
           ]
         );
         return;
       }
 
-      // 开始静默安装
       await KioskManager.silentInstallApk(filePath);
       
       console.log('APK静默安装启动成功');
-      Alert.alert('Success', `开始静默安装 ${fileName}`);
+      safeAlert('Success', `开始静默安装 ${fileName}`);
     } catch (error) {
       console.error('静默安装APK失败:', error);
-      Alert.alert('Error', `Failed to silent install APK: ${error}`);
+      safeAlert('Error', `Failed to silent install APK: ${error}`);
     }
   };
 
@@ -652,12 +592,10 @@ export default function App() {
       console.log('=== 静默安装并启动APK ===');
       console.log('文件路径:', filePath);
       console.log('文件名:', fileName);
-      console.log('==================');
 
-      // 检查设备所有者权限
       const isOwner = await KioskManager.isDeviceOwner();
       if (!isOwner) {
-        Alert.alert(
+        safeAlert(
           '需要设备所有者权限',
           '静默安装需要设备所有者权限，请先设置设备所有者',
           [
@@ -670,21 +608,19 @@ export default function App() {
                 } catch (error) {
                   console.error('请求设备管理员权限失败:', error);
                 }
-              }
-            }
+              },
+            },
           ]
         );
         return;
       }
 
-      // 开始静默安装并启动
       await KioskManager.silentInstallAndLaunchApk(filePath);
       
       console.log('APK静默安装并启动启动成功');
-      // Alert.alert('Success', `开始静默安装并启动 ${fileName}`);
     } catch (error) {
       console.error('静默安装并启动APK失败:', error);
-      Alert.alert('Error', `Failed to silent install and launch APK: ${error}`);
+      safeAlert('Error', `Failed to silent install and launch APK: ${error}`);
     }
   };
 
@@ -693,12 +629,10 @@ export default function App() {
       console.log('=== 系统级静默安装APK ===');
       console.log('文件路径:', filePath);
       console.log('文件名:', fileName);
-      console.log('==================');
 
-      // 检查设备所有者权限
       const isOwner = await KioskManager.isDeviceOwner();
       if (!isOwner) {
-        Alert.alert(
+        safeAlert(
           '需要设备所有者权限',
           '系统级静默安装需要设备所有者权限，请先设置设备所有者',
           [
@@ -711,27 +645,26 @@ export default function App() {
                 } catch (error) {
                   console.error('请求设备管理员权限失败:', error);
                 }
-              }
-            }
+              },
+            },
           ]
         );
         return;
       }
 
-      // 开始系统级静默安装
       await KioskManager.systemSilentInstallApk(filePath);
       
       console.log('APK系统级静默安装启动成功');
-      Alert.alert('Success', `开始系统级静默安装 ${fileName}`);
+      safeAlert('Success', `开始系统级静默安装 ${fileName}`);
     } catch (error) {
       console.error('系统级静默安装APK失败:', error);
-      Alert.alert('Error', `Failed to system silent install APK: ${error}`);
+      safeAlert('Error', `Failed to system silent install APK: ${error}`);
     }
   };
 
   const handleDownloadAndSilentInstall = async () => {
     if (!apkUrl.trim()) {
-      Alert.alert('Error', 'Please enter a valid APK URL');
+      safeAlert('Error', 'Please enter a valid APK URL');
       return;
     }
 
@@ -739,18 +672,14 @@ export default function App() {
     try {
       console.log('=== 开始下载并静默安装 ===');
       console.log('下载URL:', apkUrl);
-      console.log('==================');
 
       await KioskManager.downloadAndSilentInstallApk(apkUrl);
 
       console.log('=== 下载并静默安装完成 ===');
-      console.log('已启动静默安装');
-      console.log('==================');
-
-      Alert.alert('Success', 'APK download and silent installation started');
+      safeAlert('Success', 'APK download and silent installation started');
     } catch (error) {
       console.error('下载并静默安装失败:', error);
-      Alert.alert('Error', `Failed to download and silent install APK: ${error}`);
+      safeAlert('Error', `Failed to download and silent install APK: ${error}`);
     } finally {
       setIsInstalling(false);
     }
@@ -758,7 +687,7 @@ export default function App() {
 
   const handleDownloadAndSilentInstallAndLaunch = async () => {
     if (!apkUrl.trim()) {
-      Alert.alert('Error', 'Please enter a valid APK URL');
+      safeAlert('Error', 'Please enter a valid APK URL');
       return;
     }
 
@@ -766,18 +695,13 @@ export default function App() {
     try {
       console.log('=== 开始下载并静默安装并启动 ===');
       console.log('下载URL:', apkUrl);
-      console.log('==================');
 
       await KioskManager.downloadAndSilentInstallAndLaunchApk(apkUrl);
 
       console.log('=== 下载并静默安装并启动完成 ===');
-      console.log('已启动静默安装，安装完成后将自动启动应用');
-      console.log('==================');
-
-      // Alert.alert('Success', 'APK download, silent installation and auto-launch started');
     } catch (error) {
       console.error('下载并静默安装并启动失败:', error);
-      Alert.alert('Error', `Failed to download, silent install and launch APK: ${error}`);
+      safeAlert('Error', `Failed to download, silent install and launch APK: ${error}`);
     } finally {
       setIsInstalling(false);
     }
@@ -785,7 +709,7 @@ export default function App() {
 
   const handleCheckAppInstalled = async () => {
     if (!packageName.trim()) {
-      Alert.alert('Error', '请输入应用包名');
+      safeAlert('Error', '请输入应用包名');
       return;
     }
 
@@ -793,7 +717,6 @@ export default function App() {
     try {
       console.log('=== 检查应用安装状态 ===');
       console.log('包名:', packageName);
-      console.log('==================');
 
       const isInstalled = await KioskManager.isAppInstalled(packageName.trim());
       setIsAppInstalledStatus(isInstalled);
@@ -801,16 +724,15 @@ export default function App() {
       console.log('=== 检查结果 ===');
       console.log('包名:', packageName);
       console.log('安装状态:', isInstalled ? '已安装' : '未安装');
-      console.log('==================');
 
-      Alert.alert(
+      safeAlert(
         isInstalled ? '应用已安装' : '应用未安装',
         `包名: ${packageName}\n状态: ${isInstalled ? '已安装' : '未安装'}`
       );
     } catch (error: any) {
       console.error('检查应用安装状态失败:', error);
       setIsAppInstalledStatus(null);
-      Alert.alert('Error', `检查失败: ${error.message || error}`);
+      safeAlert('Error', `检查失败: ${error.message || error}`);
     } finally {
       setIsCheckingInstall(false);
     }
@@ -818,7 +740,7 @@ export default function App() {
 
   const handleLaunchApp = async () => {
     if (!packageName.trim()) {
-      Alert.alert('Error', '请输入应用包名');
+      safeAlert('Error', '请输入应用包名');
       return;
     }
 
@@ -826,14 +748,12 @@ export default function App() {
     try {
       console.log('=== 开始启动应用 ===');
       console.log('包名:', packageName);
-      console.log('==================');
 
-      // 先检查应用是否已安装
       const isInstalled = await KioskManager.isAppInstalled(packageName.trim());
       setIsAppInstalledStatus(isInstalled);
 
       if (!isInstalled) {
-        Alert.alert('Error', `应用未安装: ${packageName}\n\n请先安装应用后再启动。`);
+        safeAlert('Error', `应用未安装: ${packageName}\n\n请先安装应用后再启动。`);
         setIsLaunching(false);
         return;
       }
@@ -843,11 +763,10 @@ export default function App() {
       if (success) {
         console.log('=== 应用启动成功 ===');
         console.log('包名:', packageName);
-        console.log('==================');
-        Alert.alert('Success', `应用启动成功: ${packageName}`);
+        safeAlert('Success', `应用启动成功: ${packageName}`);
       } else {
         console.error('应用启动失败');
-        Alert.alert('Error', `应用启动失败: ${packageName}`);
+        safeAlert('Error', `应用启动失败: ${packageName}`);
       }
     } catch (error: any) {
       console.error('启动应用失败:', error);
@@ -863,1565 +782,279 @@ export default function App() {
         errorMessage = `启动应用失败: ${error.message || error}`;
       }
       console.error('启动应用失败:', errorMessage);
-      Alert.alert('Error', errorMessage);
+      safeAlert('Error', errorMessage);
     } finally {
       setIsLaunching(false);
     }
   };
 
+  // 定时开关机相关函数
+  const handleSetScheduledShutdown = async () => {
+    try {
+      const hour = parseInt(shutdownHour, 10);
+      const minute = parseInt(shutdownMinute, 10);
+
+      if (isNaN(hour) || hour < 0 || hour > 23) {
+        safeAlert('错误', '小时必须在 0-23 之间');
+        return;
+      }
+      if (isNaN(minute) || minute < 0 || minute > 59) {
+        safeAlert('错误', '分钟必须在 0-59 之间');
+        return;
+      }
+
+      const success = await KioskManager.setScheduledShutdown(hour, minute, shutdownRepeat);
+      if (!isMountedRef.current) return;
+
+      if (success) {
+        const settings = await KioskManager.getScheduledShutdown();
+        if (!isMountedRef.current) return;
+        setScheduledShutdown(settings);
+        safeAlert(
+          '成功',
+          `定时关机已设置: ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}${shutdownRepeat ? ' (每天重复)' : ' (单次)'}`
+        );
+      } else {
+        safeAlert('失败', '设置定时关机失败，请确保应用拥有设备所有者权限');
+      }
+    } catch (error: any) {
+      if (!isMountedRef.current) return;
+      safeAlert('错误', `设置定时关机失败: ${error.message || error}`);
+    }
+  };
+
+  const handleCancelScheduledShutdown = async () => {
+    try {
+      const success = await KioskManager.cancelScheduledShutdown();
+      if (!isMountedRef.current) return;
+
+      if (success) {
+        setScheduledShutdown(null);
+        safeAlert('成功', '定时关机已取消');
+      } else {
+        safeAlert('失败', '取消定时关机失败');
+      }
+    } catch (error: any) {
+      if (!isMountedRef.current) return;
+      safeAlert('错误', `取消定时关机失败: ${error.message || error}`);
+    }
+  };
+
+  const handlePerformShutdown = async () => {
+    try {
+      safeAlert(
+        '确认关机',
+        '确定要立即关机吗？',
+        [
+          { text: '取消', style: 'cancel' },
+          {
+            text: '确定',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const success = await KioskManager.performShutdown();
+                if (!isMountedRef.current) return;
+
+                if (success) {
+                  safeAlert('成功', '关机命令已执行');
+                } else {
+                  safeAlert('失败', '执行关机失败，请确保应用拥有设备所有者权限');
+                }
+              } catch (error: any) {
+                if (!isMountedRef.current) return;
+                safeAlert('错误', `执行关机失败: ${error.message || error}`);
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      if (!isMountedRef.current) return;
+      safeAlert('错误', `执行关机失败: ${error.message || error}`);
+    }
+  };
+
+  const handleSetScheduledBoot = async () => {
+    try {
+      const hour = parseInt(bootHour, 10);
+      const minute = parseInt(bootMinute, 10);
+
+      if (isNaN(hour) || hour < 0 || hour > 23) {
+        safeAlert('错误', '小时必须在 0-23 之间');
+        return;
+      }
+      if (isNaN(minute) || minute < 0 || minute > 59) {
+        safeAlert('错误', '分钟必须在 0-59 之间');
+        return;
+      }
+
+      const success = await KioskManager.setScheduledBoot(hour, minute, bootRepeat);
+      if (!isMountedRef.current) return;
+
+      const settings = await KioskManager.getScheduledBoot();
+      if (!isMountedRef.current) return;
+      setScheduledBoot(settings);
+
+      if (success) {
+        safeAlert(
+          '成功',
+          `定时开机已设置: ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}${bootRepeat ? ' (每天重复)' : ' (单次)'}\n\n注意：定时开机功能需要硬件支持，某些设备可能不支持。`
+        );
+      } else {
+        safeAlert('提示', '定时开机设置已保存，但设备可能不支持此功能。');
+      }
+    } catch (error: any) {
+      if (!isMountedRef.current) return;
+      safeAlert('错误', `设置定时开机失败: ${error.message || error}`);
+    }
+  };
+
+  const handleCancelScheduledBoot = async () => {
+    try {
+      const success = await KioskManager.cancelScheduledBoot();
+      if (!isMountedRef.current) return;
+
+      if (success) {
+        setScheduledBoot(null);
+        safeAlert('成功', '定时开机已取消');
+      } else {
+        safeAlert('失败', '取消定时开机失败');
+      }
+    } catch (error: any) {
+      if (!isMountedRef.current) return;
+      safeAlert('错误', `取消定时开机失败: ${error.message || error}`);
+    }
+  };
+
   return (
-    <View
-      style={[
-        styles.container,
-        isDarkMode ? styles.darkContainer : styles.lightContainer,
-      ]}
-    >
+    <View style={styles.container}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          isTablet && styles.tabletContent,
-          isLandscape && styles.landscapeContent,
+          isTablet && { paddingHorizontal: 40, paddingVertical: 30 },
+          isLandscape && { paddingHorizontal: 30 },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.header, isTablet && styles.tabletHeader]}>
-          <Text
-            style={[
-              styles.title,
-              isDarkMode ? styles.darkText : styles.lightText,
-            ]}
-          >
-            Kiosk Manager Example
-          </Text>
-          <Text
-            style={[
-              styles.subtitle,
-              isDarkMode ? styles.darkSubtext : styles.lightSubtext,
-            ]}
-          >
-            {isTablet ? '平板模式' : '手机模式'} •{' '}
-            {isLandscape ? '横屏' : '竖屏'}
-          </Text>
-        </View>
-        {/* 顶部 Tab */}
-        <View style={[styles.tabBar, isDarkMode ? styles.darkTabBar : styles.lightTabBar]}>
-          {[
-            { key: 'kiosk', label: '基础控制' },
-            { key: 'update', label: 'APK 更新' },
-            { key: 'files', label: '下载管理' },
-            { key: 'av', label: '亮度与音量' },
-          ].map((t: any) => (
-            <TouchableOpacity
-              key={t.key}
-              style={[
-                styles.tabButton,
-                activeTab === t.key && styles.activeTabButton,
-              ]}
-              onPress={() => setActiveTab(t.key)}
-            >
-              <Text
-                style={[
-                  styles.tabButtonText,
-                  activeTab === t.key
-                    ? styles.activeTabButtonText
-                    : isDarkMode
-                    ? styles.darkText
-                    : styles.lightText,
-                ]}
-              >
-                {t.label}
+        <View style={[styles.header, isTablet && { marginBottom: 40 }]}>
+          <Text style={styles.title}>Kiosk Manager Example</Text>
+          <Text style={styles.subtitle}>
+            {isTablet ? '平板模式' : '手机模式'} • {isLandscape ? '横屏' : '竖屏'}
               </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+              </View>
+
+        <TabBar activeTab={activeTab} onTabChange={setActiveTab} isDarkMode={isDarkMode} />
 
         {activeTab === 'kiosk' && (
-        <>
-        <View style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}>
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.primaryButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleStartKiosk}
-          >
-            <Text style={[styles.buttonText, styles.primaryButtonText]}>
-              启动Kiosk模式
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.secondaryButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleStopKiosk}
-          >
-            <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-              停止Kiosk模式
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.infoButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleCheckBootAutoStart}
-          >
-            <Text style={[styles.buttonText, styles.infoButtonText]}>
-              检查开机自启
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.warningButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleRequestDeviceAdmin}
-          >
-            <Text style={[styles.buttonText, styles.warningButtonText]}>
-              请求设备管理员
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.infoButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleCheckDeviceOwner}
-          >
-            <Text style={[styles.buttonText, styles.infoButtonText]}>
-              检查设备所有者
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.successButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleSetupLockTaskPackage}
-          >
-            <Text style={[styles.buttonText, styles.successButtonText]}>
-              设置锁定任务包
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.dangerButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleClearDeviceOwner}
-          >
-            <Text style={[styles.buttonText, styles.dangerButtonText]}>
-              清除设备所有者
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              bootAutoStart ? styles.successButton : styles.warningButton,
-              isDarkMode && styles.darkButton,
-              isTablet && styles.tabletActionButton,
-            ]}
-            onPress={handleToggleBootAutoStart}
-          >
-            <Text style={[
-              styles.buttonText,
-              bootAutoStart ? styles.successButtonText : styles.warningButtonText,
-            ]}>
-              {bootAutoStart === null ? '切换开机自启' : (bootAutoStart ? '禁用开机自启' : '开启开机自启')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View
-          style={[styles.statusSection, isTablet && styles.tabletStatusSection]}
-        >
-          <Text
-            style={[
-              styles.statusTitle,
-              isDarkMode ? styles.darkText : styles.lightText,
-            ]}
-          >
-            状态信息
-          </Text>
-
-          {bootAutoStart !== null && (
-            <View
-              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
-            >
-              <Text
-                style={[
-                  styles.statusLabel,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                开机自启:
-              </Text>
-              <Text
-                style={[
-                  styles.statusValue,
-                  bootAutoStart ? styles.statusEnabled : styles.statusDisabled,
-                  isDarkMode && styles.darkText,
-                ]}
-              >
-                {bootAutoStart ? '已启用' : '已禁用'}
-              </Text>
-            </View>
-          )}
-
-          {isDeviceOwner !== null && (
-            <View
-              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
-            >
-              <Text
-                style={[
-                  styles.statusLabel,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                设备所有者:
-              </Text>
-              <Text
-                style={[
-                  styles.statusValue,
-                  isDeviceOwner ? styles.statusEnabled : styles.statusDisabled,
-                  isDarkMode && styles.darkText,
-                ]}
-              >
-                {isDeviceOwner ? '已激活' : '未激活'}
-              </Text>
-            </View>
-          )}
-
-          {isLockTaskPackageSetup !== null && (
-            <View
-              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
-            >
-              <Text
-                style={[
-                  styles.statusLabel,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                锁定任务包:
-              </Text>
-              <Text
-                style={[
-                  styles.statusValue,
-                  isLockTaskPackageSetup
-                    ? styles.statusEnabled
-                    : styles.statusDisabled,
-                  isDarkMode && styles.darkText,
-                ]}
-              >
-                {isLockTaskPackageSetup ? '已设置' : '未设置'}
-              </Text>
-            </View>
-          )}
-        </View>
-        </>
+          <KioskControlTab
+            bootAutoStart={bootAutoStart}
+            isDeviceOwner={isDeviceOwner}
+            isLockTaskPackageSetup={isLockTaskPackageSetup}
+            onStartKiosk={handleStartKiosk}
+            onStopKiosk={handleStopKiosk}
+            onCheckBootAutoStart={handleCheckBootAutoStart}
+            onRequestDeviceAdmin={handleRequestDeviceAdmin}
+            onCheckDeviceOwner={handleCheckDeviceOwner}
+            onSetupLockTaskPackage={handleSetupLockTaskPackage}
+            onClearDeviceOwner={handleClearDeviceOwner}
+            onToggleBootAutoStart={handleToggleBootAutoStart}
+          />
         )}
 
-        {/* APK 更新功能部分 */}
         {activeTab === 'update' && (
-        <View style={[styles.section, isTablet && styles.tabletSection]}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              isDarkMode ? styles.darkText : styles.lightText,
-            ]}
-          >
-            APK 自动更新
-          </Text>
-
-          <View style={styles.inputContainer}>
-            <Text
-              style={[
-                styles.inputLabel,
-                isDarkMode ? styles.darkText : styles.lightText,
-              ]}
-            >
-              APK 下载链接:
-            </Text>
-            <TextInput
-              style={[styles.textInput, isDarkMode && styles.darkTextInput]}
-              value={apkUrl}
-              onChangeText={setApkUrl}
-              placeholder="输入 APK 文件的 URL"
-              placeholderTextColor={isDarkMode ? '#666' : '#999'}
-              multiline
-            />
-          </View>
-
-          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}>
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>系统铃声模式:</Text>
-            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{ringerMode ?? '-'}</Text>
-          </View>
-          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}>
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>免打扰权限:</Text>
-            <Text style={[styles.statusValue, (hasDndAccess ? styles.statusEnabled : styles.statusDisabled), isDarkMode && styles.darkText]}>{hasDndAccess ? '已授权' : '未授权'}</Text>
-          </View>
-
-          <View
-            style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.primaryButton,
-                isDarkMode && styles.darkButton,
-                isDownloading && styles.disabledButton,
-              ]}
-              onPress={handleDownloadApk}
-              disabled={isDownloading}
-            >
-              <Text
-                style={[styles.compactButtonText, styles.primaryButtonText]}
-              >
-                {isDownloading ? '下载中...' : '下载 APK'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.successButton,
-                isDarkMode && styles.darkButton,
-                !downloadResult && styles.disabledButton,
-              ]}
-              onPress={() => {
-                if (downloadResult) {
-                  handleInstallApk(downloadResult.filePath, downloadResult.fileName);
-                }
-              }}
-              disabled={!downloadResult || isInstalling}
-            >
-              <Text
-                style={[styles.compactButtonText, styles.successButtonText]}
-              >
-                {isInstalling ? '安装中...' : '安装 APK'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 下载进度显示 */}
-          {isDownloading && downloadProgress && (
-            <View style={styles.progressContainer}>
-              <Text
-                style={[
-                  styles.progressText,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                下载进度: {downloadProgress.progress}%
-              </Text>
-              <View style={styles.progressBarContainer}>
-                <View
-                  style={[
-                    styles.progressBar,
-                    { width: `${downloadProgress.progress}%` },
-                  ]}
-                />
-              </View>
-              <Text
-                style={[
-                  styles.progressDetails,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                {(downloadProgress.bytesRead / 1024 / 1024).toFixed(2)} MB /{' '}
-                {(downloadProgress.totalBytes / 1024 / 1024).toFixed(2)} MB
-              </Text>
-            </View>
-          )}
-
-          {/* 安装状态显示 */}
-          {installStatus && (
-            <View
-              style={[
-                styles.statusItem,
-                isDarkMode && styles.darkStatusItem,
-                { marginTop: 10, marginBottom: 10, padding: 12 },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.statusLabel,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                  { marginBottom: 5 },
-                ]}
-              >
-                安装状态:
-              </Text>
-              <Text
-                style={[
-                  styles.statusValue,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                  {
-                    color:
-                      installStatus.status === 'installed' ||
-                      installStatus.status === 'launched'
-                        ? '#4CAF50'
-                        : installStatus.status === 'failed' ||
-                          installStatus.status === 'cancelled' ||
-                          installStatus.status === 'blocked' ||
-                          installStatus.status === 'conflict' ||
-                          installStatus.status === 'incompatible' ||
-                          installStatus.status === 'invalid' ||
-                          installStatus.status === 'storage_error' ||
-                          installStatus.status === 'launch_failed'
-                        ? '#F44336'
-                        : '#2196F3',
-                    fontWeight: 'bold',
-                    marginBottom: 5,
-                  },
-                ]}
-              >
-                {installStatus.status === 'installing'
-                  ? '正在安装...'
-                  : installStatus.status === 'installed'
-                  ? '安装成功'
-                  : installStatus.status === 'launching'
-                  ? '正在启动...'
-                  : installStatus.status === 'launched'
-                  ? '启动成功'
-                  : installStatus.status === 'failed'
-                  ? '安装失败'
-                  : installStatus.status === 'cancelled'
-                  ? '已取消'
-                  : installStatus.status === 'blocked'
-                  ? '被阻止'
-                  : installStatus.status === 'conflict'
-                  ? '安装冲突'
-                  : installStatus.status === 'incompatible'
-                  ? '不兼容'
-                  : installStatus.status === 'invalid'
-                  ? '无效APK'
-                  : installStatus.status === 'storage_error'
-                  ? '存储空间不足'
-                  : installStatus.status === 'timeout'
-                  ? '超时'
-                  : installStatus.status === 'error'
-                  ? '错误'
-                  : installStatus.status === 'launch_failed'
-                  ? '启动失败'
-                  : installStatus.status}
-              </Text>
-              {installStatus.message && (
-                <Text
-                  style={[
-                    styles.progressDetails,
-                    isDarkMode ? styles.darkSubtext : styles.lightSubtext,
-                    { marginTop: 3 },
-                  ]}
-                >
-                  {installStatus.message}
-                </Text>
-              )}
-              {installStatus.packageName && (
-                <Text
-                  style={[
-                    styles.progressDetails,
-                    isDarkMode ? styles.darkSubtext : styles.lightSubtext,
-                    { marginTop: 3 },
-                  ]}
-                >
-                  包名: {installStatus.packageName}
-                </Text>
-              )}
-              {installStatus.progress !== undefined && (
-                <View style={{ marginTop: 10 }}>
-                  <View style={styles.progressBarContainer}>
-                    <View
-                      style={[
-                        styles.progressBar,
-                        { width: `${installStatus.progress}%` },
-                      ]}
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.progressDetails,
-                      isDarkMode ? styles.darkSubtext : styles.lightSubtext,
-                      { marginTop: 5, textAlign: 'center' },
-                    ]}
-                  >
-                    {installStatus.progress}%
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-
-          <View
-            style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.warningButton,
-                isDarkMode && styles.darkButton,
-                isInstalling && styles.disabledButton,
-              ]}
-              onPress={handleDownloadAndInstall}
-              disabled={isInstalling}
-            >
-              <Text
-                style={[styles.compactButtonText, styles.warningButtonText]}
-              >
-                {isInstalling ? '处理中...' : '下载并安装'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.dangerButton,
-                isDarkMode && styles.darkButton,
-                isInstalling && styles.disabledButton,
-              ]}
-              onPress={handleDownloadAndSilentInstall}
-              disabled={isInstalling}
-            >
-              <Text
-                style={[styles.compactButtonText, styles.dangerButtonText]}
-              >
-                {isInstalling ? '处理中...' : '下载并静默安装'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.successButton,
-                isDarkMode && styles.darkButton,
-                isInstalling && styles.disabledButton,
-              ]}
-              onPress={handleDownloadAndSilentInstallAndLaunch}
-              disabled={isInstalling}
-            >
-              <Text
-                style={[styles.compactButtonText, styles.successButtonText]}
-              >
-                {isInstalling ? '处理中...' : '下载并静默安装并启动'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.infoButton,
-                isDarkMode && styles.darkButton,
-              ]}
-              onPress={handleCheckInstallPermission}
-            >
-              <Text style={[styles.compactButtonText, styles.infoButtonText]}>
-                检查安装权限
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.infoButton,
-                isDarkMode && styles.darkButton,
-              ]}
-              onPress={handleRequestInstallPermission}
-            >
-              <Text style={[styles.compactButtonText, styles.infoButtonText]}>
-                请求安装权限
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {downloadResult && (
-            <View
-              style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}
-            >
-              <Text
-                style={[
-                  styles.statusLabel,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                下载结果:
-              </Text>
-              <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
-                {downloadResult.fileName} (
-                {(downloadResult.fileSize / 1024 / 1024).toFixed(2)} MB)
-              </Text>
-            </View>
-          )}
-
-          {/* 启动应用功能 */}
-          <View style={{ height: 1, backgroundColor: isDarkMode ? '#333' : '#e0e0e0', marginVertical: 20 }} />
-          <Text
-            style={[
-              styles.sectionTitle,
-              isDarkMode ? styles.darkText : styles.lightText,
-              { marginTop: 10, marginBottom: 10 },
-            ]}
-          >
-            启动应用
-          </Text>
-          <Text
-            style={[
-              styles.inputLabel,
-              isDarkMode ? styles.darkText : styles.lightText,
-              { marginBottom: 5 },
-            ]}
-          >
-            说明: 输入应用包名来启动已安装的应用
-          </Text>
-          <Text
-            style={[
-              styles.inputLabel,
-              isDarkMode ? styles.darkSubtext : styles.lightSubtext,
-              { fontSize: 12, marginBottom: 10 },
-            ]}
-          >
-            示例: com.android.settings (设置), com.android.chrome (Chrome浏览器)
-          </Text>
-
-          <View style={styles.inputContainer}>
-            <Text
-              style={[
-                styles.inputLabel,
-                isDarkMode ? styles.darkText : styles.lightText,
-              ]}
-            >
-              应用包名:
-            </Text>
-            <TextInput
-              style={[styles.textInput, isDarkMode && styles.darkTextInput]}
-              value={packageName}
-              onChangeText={(text) => {
+          <ApkUpdateTab
+            apkUrl={apkUrl}
+            packageName={packageName}
+            downloadResult={downloadResult}
+            isDownloading={isDownloading}
+            isInstalling={isInstalling}
+            isLaunching={isLaunching}
+            isCheckingInstall={isCheckingInstall}
+            isAppInstalledStatus={isAppInstalledStatus}
+            downloadProgress={downloadProgress}
+            installStatus={installStatus}
+            ringerMode={ringerMode}
+            hasDndAccess={hasDndAccess}
+            onApkUrlChange={setApkUrl}
+            onPackageNameChange={(text) => {
                 setPackageName(text);
-                setIsAppInstalledStatus(null); // 清除之前的状态
-              }}
-              placeholder="输入应用包名，例如: com.android.settings"
-              placeholderTextColor={isDarkMode ? '#666' : '#999'}
-            />
-          </View>
-
-          {/* 应用安装状态显示 */}
-          {isAppInstalledStatus !== null && (
-            <View
-              style={[
-                styles.statusItem,
-                isDarkMode && styles.darkStatusItem,
-                { marginTop: 10, marginBottom: 10 },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.statusLabel,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                安装状态:
-              </Text>
-              <Text
-                style={[
-                  styles.statusValue,
-                  isDarkMode && styles.darkText,
-                  isAppInstalledStatus
-                    ? styles.statusEnabled
-                    : styles.statusDisabled,
-                ]}
-              >
-                {isAppInstalledStatus ? '已安装' : '未安装'}
-              </Text>
-            </View>
-          )}
-
-          <View
-            style={[
-              styles.buttonGrid,
-              isTablet && styles.tabletButtonGrid,
-              { marginTop: 10 },
-            ]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.infoButton,
-                isDarkMode && styles.darkButton,
-                isCheckingInstall && styles.disabledButton,
-              ]}
-              onPress={handleCheckAppInstalled}
-              disabled={isCheckingInstall}
-            >
-              <Text
-                style={[styles.compactButtonText, styles.infoButtonText]}
-              >
-                {isCheckingInstall ? '检查中...' : '检查安装状态'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.primaryButton,
-                isDarkMode && styles.darkButton,
-                (isLaunching || isCheckingInstall) && styles.disabledButton,
-              ]}
-              onPress={handleLaunchApp}
-              disabled={isLaunching || isCheckingInstall}
-            >
-              <Text
-                style={[styles.compactButtonText, styles.primaryButtonText]}
-              >
-                {isLaunching ? '启动中...' : '启动应用'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+              setIsAppInstalledStatus(null);
+            }}
+            onDownloadApk={handleDownloadApk}
+            onInstallApk={handleInstallApk}
+            onDownloadAndInstall={handleDownloadAndInstall}
+            onDownloadAndSilentInstall={handleDownloadAndSilentInstall}
+            onDownloadAndSilentInstallAndLaunch={handleDownloadAndSilentInstallAndLaunch}
+            onCheckInstallPermission={handleCheckInstallPermission}
+            onRequestInstallPermission={handleRequestInstallPermission}
+            onCheckAppInstalled={handleCheckAppInstalled}
+            onLaunchApp={handleLaunchApp}
+          />
         )}
 
-        {/* 亮度与音量控制 */}
-        {activeTab === 'av' && (
-        <View style={[styles.section, isTablet && styles.tabletSection]}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              isDarkMode ? styles.darkText : styles.lightText,
-            ]}
-          >
-            亮度与音量控制（Android）
-          </Text>
-
-          {/* 系统亮度权限与设置 */}
-          <View style={styles.buttonGrid}>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
-              onPress={async () => {
-                try {
-                  const has = await KioskManager.hasWriteSettingsPermission();
-                  setHasWriteSettings(has);
-                  Alert.alert('WRITE_SETTINGS', has ? '已授权' : '未授权');
-                } catch {
-                  Alert.alert('Error', '检查权限失败');
-                }
-              }}
-            >
-              <Text style={[styles.compactButtonText, styles.infoButtonText]}>检查系统写入权限</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
-              onPress={handleRequestWriteSettings}
-            >
-              <Text style={[styles.compactButtonText, styles.warningButtonText]}>请求系统写入权限</Text>
-            </TouchableOpacity>
-            {hasWriteSettings !== null && (
-              <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}> 
-                <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>权限状态</Text>
-                <Text style={[styles.statusValue, hasWriteSettings ? styles.statusEnabled : styles.statusDisabled, isDarkMode && styles.darkText]}>
-                  {hasWriteSettings ? '已授权' : '未授权'}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>系统亮度(0-255):</Text>
-            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{systemBrightness ?? '-'}</Text>
-          </View>
-
-            <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
-              onPress={() => handleSetSystemBrightness(50)}
-            >
-              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>系统亮度 50</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
-              onPress={() => handleSetSystemBrightness(128)}
-            >
-              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>系统亮度 128</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
-              onPress={() => handleSetSystemBrightness(255)}
-            >
-              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>系统亮度 255</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 应用亮度 */}
-          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>应用亮度(0-1或-1):</Text>
-            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{appBrightness ?? '-'}</Text>
-          </View>
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.primaryButton, isDarkMode && styles.darkButton]}
-              onPress={() => handleSetAppBrightness(0)}
-            >
-              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>应用亮度 0</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.primaryButton, isDarkMode && styles.darkButton]}
-              onPress={() => handleSetAppBrightness(0.5)}
-            >
-              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>应用亮度 0.5</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.primaryButton, isDarkMode && styles.darkButton]}
-              onPress={() => handleSetAppBrightness(1)}
-            >
-              <Text style={[styles.compactButtonText, styles.primaryButtonText]}>应用亮度 1</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
-              onPress={() => { try { KioskManager.resetAppBrightness(); setAppBrightness(-1); } catch {} }}
-            >
-              <Text style={[styles.compactButtonText, styles.warningButtonText]}>恢复系统控制</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 全局音量便捷操作 */}
-          <View style={[styles.statusItem, isDarkMode && styles.darkStatusItem]}> 
-            <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>全局音量(0-1):</Text>
-            <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>{globalVolume?.toFixed(2) ?? '-'}</Text>
-          </View>
-
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.successButton, isDarkMode && styles.darkButton]}
-              onPress={async () => { await KioskManager.setGlobalVolume(0); setGlobalVolume(0); }}
-            >
-              <Text style={[styles.compactButtonText, styles.successButtonText]}>全局音量 0</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.successButton, isDarkMode && styles.darkButton]}
-              onPress={async () => { await KioskManager.setGlobalVolume(0.5); const v = await KioskManager.getGlobalVolume(); setGlobalVolume(v); }}
-            >
-              <Text style={[styles.compactButtonText, styles.successButtonText]}>全局音量 0.5</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.successButton, isDarkMode && styles.darkButton]}
-              onPress={async () => { await KioskManager.setGlobalVolume(1); setGlobalVolume(1); }}
-            >
-              <Text style={[styles.compactButtonText, styles.successButtonText]}>全局音量 1</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
-              onPress={handleToggleGlobalMute}
-            >
-              <Text style={[styles.compactButtonText, styles.warningButtonText]}>{globalMuted ? '取消全局静音' : '全局静音'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.compactButton, styles.secondaryButton, isDarkMode && styles.darkButton]}
-              onPress={handleToggleSystemMute}
-            >
-              <Text style={[styles.compactButtonText, styles.secondaryButtonText]}>
-                {ringerMode === 'silent' ? '系统静音：开（点我关闭）' : '系统静音：关（点我开启）'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          
-
-          {/* 各音频流音量（Accordion） */}
-          <TouchableOpacity
-            style={[styles.buttonRow]}
-            onPress={() => setStreamsOpen(!streamsOpen)}
-          >
-            <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}> 
-              <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>
-                各音频流音量
-              </Text>
-            </View>
-            <View>
-              <Text style={[styles.compactButtonText, isDarkMode ? styles.darkText : styles.lightText]}>
-                {streamsOpen ? '收起 ▲' : '展开 ▼'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {streamsOpen && (
-            <>
-              {audioStreams.map((s) => (
-                <View key={s.key} style={styles.buttonRow}>
-                  <TouchableOpacity
-                    style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
-                    onPress={() => handleSetVolume(s.key, Math.max(0, (volumes[s.key] ?? 0) - 0.1))}
-                  >
-                    <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} -</Text>
-                  </TouchableOpacity>
-                  <View style={[styles.statusItem, { flex: 1 }, isDarkMode && styles.darkStatusItem]}>
-                    <Text style={[styles.statusLabel, isDarkMode ? styles.darkText : styles.lightText]}>
-                      {s.label} 音量:
-                    </Text>
-                    <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
-                      {(volumes[s.key] ?? 0).toFixed(2)}
-                    </Text>
-                    <Text style={[styles.statusValue, isDarkMode && styles.darkText]}>
-                      {mutedMap[s.key] ? '（已静音）' : ''}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.compactButton, styles.infoButton, isDarkMode && styles.darkButton]}
-                    onPress={() => handleSetVolume(s.key, Math.min(1, (volumes[s.key] ?? 0) + 0.1))}
-                  >
-                    <Text style={[styles.compactButtonText, styles.infoButtonText]}>{s.label} +</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.compactButton, styles.warningButton, isDarkMode && styles.darkButton]}
-                    onPress={() => handleToggleMute(s.key)}
-                  >
-                    <Text style={[styles.compactButtonText, styles.warningButtonText]}>
-                      {mutedMap[s.key] ? '取消静音' : '静音'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </>
-          )}
-        </View>
-        )}
-        {/* 文件管理部分 */}
         {activeTab === 'files' && (
-        <View style={[styles.section, isTablet && styles.tabletSection]}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              isDarkMode ? styles.darkText : styles.lightText,
-            ]}
-          >
-            下载文件管理
-          </Text>
+          <FileManagementTab
+            downloadedFiles={downloadedFiles}
+            isLoadingFiles={isLoadingFiles}
+            onGetDownloadedFiles={handleGetDownloadedFiles}
+            onClearAllFiles={handleClearAllFiles}
+            onInstallApk={handleInstallApk}
+            onSilentInstallApk={handleSilentInstallApk}
+            onSilentInstallAndLaunchApk={handleSilentInstallAndLaunchApk}
+            onSystemSilentInstallApk={handleSystemSilentInstallApk}
+            onDeleteFile={handleDeleteFile}
+          />
+        )}
 
-          <View
-            style={[styles.buttonGrid, isTablet && styles.tabletButtonGrid]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.infoButton,
-                isDarkMode && styles.darkButton,
-                isLoadingFiles && styles.disabledButton,
-              ]}
-              onPress={handleGetDownloadedFiles}
-              disabled={isLoadingFiles}
-            >
-              <Text style={[styles.compactButtonText, styles.infoButtonText]}>
-                {isLoadingFiles ? '加载中...' : '获取文件列表'}
-              </Text>
-            </TouchableOpacity>
+        {activeTab === 'av' && (
+          <BrightnessVolumeTab
+            hasWriteSettings={hasWriteSettings}
+            systemBrightness={systemBrightness}
+            appBrightness={appBrightness}
+            volumes={volumes}
+            globalVolume={globalVolume}
+            mutedMap={mutedMap}
+            globalMuted={globalMuted}
+            ringerMode={ringerMode}
+            hasDndAccess={hasDndAccess}
+            onHasWriteSettingsChange={setHasWriteSettings}
+            onSystemBrightnessChange={setSystemBrightness}
+            onAppBrightnessChange={setAppBrightness}
+            onVolumesChange={setVolumes}
+            onGlobalVolumeChange={setGlobalVolume}
+            onMutedMapChange={setMutedMap}
+            onGlobalMutedChange={setGlobalMuted}
+            onRingerModeChange={setRingerMode}
+            onHasDndAccessChange={setHasDndAccess}
+          />
+        )}
 
-            <TouchableOpacity
-              style={[
-                styles.compactButton,
-                styles.dangerButton,
-                isDarkMode && styles.darkButton,
-                downloadedFiles.length === 0 && styles.disabledButton,
-              ]}
-              onPress={handleClearAllFiles}
-              disabled={downloadedFiles.length === 0}
-            >
-              <Text style={[styles.compactButtonText, styles.dangerButtonText]}>
-                清空所有文件
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 文件列表 */}
-          {downloadedFiles.length > 0 && (
-            <View style={styles.fileListContainer}>
-              <Text
-                style={[
-                  styles.fileListTitle,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                已下载文件 ({downloadedFiles.length})
-              </Text>
-
-              {downloadedFiles.map((file) => (
-                <View
-                  key={file.filePath}
-                  style={[styles.fileItem, isDarkMode && styles.darkFileItem]}
-                >
-                  <View style={styles.fileInfo}>
-                    <Text
-                      style={[
-                        styles.fileName,
-                        isDarkMode ? styles.darkText : styles.lightText,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {file.fileName}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.fileDetails,
-                        isDarkMode ? styles.darkText : styles.lightText,
-                      ]}
-                    >
-                      {(file.fileSize / 1024 / 1024).toFixed(2)} MB •{' '}
-                      {new Date(file.lastModified).toLocaleDateString()}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.filePath,
-                        isDarkMode ? styles.darkText : styles.lightText,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {file.filePath}
-                    </Text>
-                  </View>
-
-                  <View style={styles.fileActions}>
-                    <TouchableOpacity
-                      style={[
-                        styles.installButton,
-                        isDarkMode && styles.darkInstallButton,
-                      ]}
-                      onPress={() =>
-                        handleInstallApk(file.filePath, file.fileName)
-                      }
-                    >
-                      <Text style={styles.installButtonText}>安装</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.silentInstallButton,
-                        isDarkMode && styles.darkSilentInstallButton,
-                      ]}
-                      onPress={() =>
-                        handleSilentInstallApk(file.filePath, file.fileName)
-                      }
-                    >
-                      <Text style={styles.silentInstallButtonText}>静默安装</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.autoLaunchButton,
-                        isDarkMode && styles.darkAutoLaunchButton,
-                      ]}
-                      onPress={() =>
-                        handleSilentInstallAndLaunchApk(file.filePath, file.fileName)
-                      }
-                    >
-                      <Text style={styles.autoLaunchButtonText}>静默安装并启动</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.systemInstallButton,
-                        isDarkMode && styles.darkSystemInstallButton,
-                      ]}
-                      onPress={() =>
-                        handleSystemSilentInstallApk(file.filePath, file.fileName)
-                      }
-                    >
-                      <Text style={styles.systemInstallButtonText}>系统级静默安装</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.deleteButton,
-                        isDarkMode && styles.darkDeleteButton,
-                      ]}
-                      onPress={() =>
-                        handleDeleteFile(file.filePath, file.fileName)
-                      }
-                    >
-                      <Text style={styles.deleteButtonText}>删除</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {downloadedFiles.length === 0 && !isLoadingFiles && (
-            <View style={styles.emptyState}>
-              <Text
-                style={[
-                  styles.emptyStateText,
-                  isDarkMode ? styles.darkText : styles.lightText,
-                ]}
-              >
-                暂无下载文件
-              </Text>
-            </View>
-          )}
-        </View>
+        {activeTab === 'power' && (
+          <PowerScheduleTab
+            scheduledShutdown={scheduledShutdown}
+            scheduledBoot={scheduledBoot}
+            shutdownHour={shutdownHour}
+            shutdownMinute={shutdownMinute}
+            shutdownRepeat={shutdownRepeat}
+            bootHour={bootHour}
+            bootMinute={bootMinute}
+            bootRepeat={bootRepeat}
+            onShutdownHourChange={setShutdownHour}
+            onShutdownMinuteChange={setShutdownMinute}
+            onShutdownRepeatChange={setShutdownRepeat}
+            onBootHourChange={setBootHour}
+            onBootMinuteChange={setBootMinute}
+            onBootRepeatChange={setBootRepeat}
+            onSetScheduledShutdown={handleSetScheduledShutdown}
+            onCancelScheduledShutdown={handleCancelScheduledShutdown}
+            onPerformShutdown={handlePerformShutdown}
+            onSetScheduledBoot={handleSetScheduledBoot}
+            onCancelScheduledBoot={handleCancelScheduledBoot}
+          />
         )}
       </ScrollView>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  lightContainer: {
-    backgroundColor: '#f8f9fa',
-  },
-  darkContainer: {
-    backgroundColor: '#121212',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  tabletContent: {
-    paddingHorizontal: 40,
-    paddingVertical: 30,
-  },
-  landscapeContent: {
-    paddingHorizontal: 30,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  tabletHeader: {
-    marginBottom: 40,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    opacity: 0.7,
-  },
-  lightSubtext: {
-    color: '#666666',
-  },
-  darkSubtext: {
-    color: '#cccccc',
-  },
-  lightText: {
-    color: '#212529',
-  },
-  darkText: {
-    color: '#ffffff',
-  },
-  buttonGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 16,
-  },
-  tabletButtonGrid: {
-    gap: 16,
-  },
-  actionButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 56,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  compactButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 44,
-    flex: 1,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  tabletActionButton: {
-    flex: 1,
-    minWidth: '45%',
-    maxWidth: '48%',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  compactButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  // 按钮颜色变体
-  primaryButton: {
-    backgroundColor: '#007AFF',
-  },
-  primaryButtonText: {
-    color: '#ffffff',
-  },
-  secondaryButton: {
-    backgroundColor: '#6C757D',
-  },
-  secondaryButtonText: {
-    color: '#ffffff',
-  },
-  successButton: {
-    backgroundColor: '#28A745',
-  },
-  successButtonText: {
-    color: '#ffffff',
-  },
-  warningButton: {
-    backgroundColor: '#FFC107',
-  },
-  warningButtonText: {
-    color: '#212529',
-  },
-  dangerButton: {
-    backgroundColor: '#DC3545',
-  },
-  dangerButtonText: {
-    color: '#ffffff',
-  },
-  infoButton: {
-    backgroundColor: '#17A2B8',
-  },
-  infoButtonText: {
-    color: '#ffffff',
-  },
-  darkButton: {
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  statusSection: {
-    marginTop: 30,
-    padding: 20,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  tabletStatusSection: {
-    marginTop: 40,
-    padding: 30,
-  },
-  statusTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  statusItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginVertical: 2,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-  },
-  darkStatusItem: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  statusLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    flex: 1,
-  },
-  statusValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  statusEnabled: {
-    backgroundColor: '#d4edda',
-    color: '#155724',
-  },
-  statusDisabled: {
-    backgroundColor: '#f8d7da',
-    color: '#721c24',
-  },
-
-  // APK 更新相关样式
-  section: {
-    marginTop: 24,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  progressContainer: {
-    marginTop: 16,
-    marginBottom: 16,
-    padding: 16,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    borderRadius: 8,
-  },
-  progressText: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  progressBarContainer: {
-    height: 6,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#007AFF',
-    borderRadius: 3,
-  },
-  progressDetails: {
-    fontSize: 12,
-    textAlign: 'center',
-    opacity: 0.7,
-  },
-
-  // 文件管理相关样式
-  fileListContainer: {
-    marginTop: 16,
-  },
-  fileListTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  fileItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
-  },
-  darkFileItem: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  fileInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  fileName: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  fileDetails: {
-    fontSize: 12,
-    opacity: 0.7,
-    marginBottom: 2,
-  },
-  filePath: {
-    fontSize: 10,
-    opacity: 0.5,
-    fontFamily: 'monospace',
-  },
-  fileActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  installButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#28a745',
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  darkInstallButton: {
-    backgroundColor: '#28a745',
-  },
-  installButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  silentInstallButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#dc3545',
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  darkSilentInstallButton: {
-    backgroundColor: '#dc3545',
-  },
-  silentInstallButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  autoLaunchButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#28a745',
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  darkAutoLaunchButton: {
-    backgroundColor: '#28a745',
-  },
-  autoLaunchButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  systemInstallButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#6f42c1',
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  darkSystemInstallButton: {
-    backgroundColor: '#6f42c1',
-  },
-  systemInstallButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  deleteButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#dc3545',
-    borderRadius: 6,
-  },
-  darkDeleteButton: {
-    backgroundColor: '#dc3545',
-  },
-  deleteButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  emptyState: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  emptyStateText: {
-    fontSize: 14,
-    opacity: 0.6,
-    fontStyle: 'italic',
-  },
-  tabletSection: {
-    marginTop: 32,
-    padding: 24,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  inputContainer: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  darkTextInput: {
-    borderColor: '#555',
-    backgroundColor: '#333',
-    color: '#fff',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    gap: 12,
-  },
-  disabledButton: {
-    opacity: 0.5,
-  },
-  // Tabs
-  tabBar: {
-    flexDirection: 'row',
-    borderRadius: 10,
-    padding: 6,
-    marginBottom: 16,
-    gap: 8,
-  },
-  lightTabBar: {
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  darkTabBar: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeTabButton: {
-    backgroundColor: '#007AFF',
-  },
-  tabButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  activeTabButtonText: {
-    color: '#ffffff',
-  },
-});
