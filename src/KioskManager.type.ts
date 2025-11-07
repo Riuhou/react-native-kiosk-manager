@@ -28,6 +28,16 @@ export interface InstallStatus {
 }
 
 /**
+ * 定时开关机设置接口
+ */
+export interface ScheduledPowerSettings {
+  enabled: boolean;    // 是否启用
+  hour: number;        // 小时 (0-23)
+  minute: number;      // 分钟 (0-59)
+  repeat: boolean;     // 是否每天重复
+}
+
+/**
  * KioskManager 接口定义
  * 
  * 提供完整的 Android Kiosk 模式管理功能，包括：
@@ -1163,4 +1173,152 @@ export interface KioskManagerType {
    
    */
   clearAllDownloadedFiles: () => Promise<number>;
+  
+  // ========== 定时开关机相关方法 ==========
+
+  /**
+   * 设置定时关机
+   * 
+   * 设置设备在指定时间自动关机。需要设备所有者权限。
+   * 
+   * @param hour - 小时，范围 0-23
+   * @param minute - 分钟，范围 0-59
+   * @param repeat - 是否每天重复，true 为每天重复，false 为单次执行
+   * @returns Promise<boolean> - 返回 true 表示设置成功，false 表示失败
+   * 
+   * @example
+   * // 示例代码：
+   * // 设置每天 22:00 自动关机
+   * const success = await KioskManager.setScheduledShutdown(22, 0, true);
+   * if (success) {
+   *   console.log('定时关机设置成功');
+   * }
+   * 
+   * // 设置单次关机：明天 23:30
+   * await KioskManager.setScheduledShutdown(23, 30, false);
+   * 
+   */
+  setScheduledShutdown: (hour: number, minute: number, repeat: boolean) => Promise<boolean>;
+
+  /**
+   * 取消定时关机
+   * 
+   * 取消已设置的定时关机任务。
+   * 
+   * @returns Promise<boolean> - 返回 true 表示取消成功
+   * 
+   * @example
+   * // 示例代码：
+   * const success = await KioskManager.cancelScheduledShutdown();
+   * if (success) {
+   *   console.log('定时关机已取消');
+   * }
+   * 
+   */
+  cancelScheduledShutdown: () => Promise<boolean>;
+
+  /**
+   * 获取定时关机设置
+   * 
+   * 获取当前设置的定时关机配置。
+   * 
+   * @returns Promise<ScheduledPowerSettings | null> - 返回定时关机设置，如果未设置则返回 null
+   * 
+   * @example
+   * // 示例代码：
+   * const settings = await KioskManager.getScheduledShutdown();
+   * if (settings) {
+   *   console.log(`定时关机: ${settings.hour}:${settings.minute}, 重复: ${settings.repeat}`);
+   * } else {
+   *   console.log('未设置定时关机');
+   * }
+   * 
+   */
+  getScheduledShutdown: () => Promise<ScheduledPowerSettings | null>;
+
+  /**
+   * 立即执行关机
+   * 
+   * 立即关闭设备。需要设备所有者权限。
+   * 
+   * @returns Promise<boolean> - 返回 true 表示关机命令已执行
+   * 
+   * @example
+   * // 示例代码：
+   * // 确保应用是设备所有者
+   * const isOwner = await KioskManager.isDeviceOwner();
+   * if (isOwner) {
+   *   const success = await KioskManager.performShutdown();
+   *   if (success) {
+   *     console.log('关机命令已执行');
+   *   }
+   * } else {
+   *   console.error('需要设备所有者权限');
+   * }
+   * 
+   */
+  performShutdown: () => Promise<boolean>;
+
+  /**
+   * 设置定时开机
+   * 
+   * 设置设备在指定时间自动开机。
+   * 注意：Android 系统本身不支持定时开机，此功能依赖于设备硬件支持。
+   * 某些厂商的 ROM 可能支持此功能。
+   * 
+   * @param hour - 小时，范围 0-23
+   * @param minute - 分钟，范围 0-59
+   * @param repeat - 是否每天重复，true 为每天重复，false 为单次执行
+   * @returns Promise<boolean> - 返回 true 表示设置成功（如果硬件支持），false 表示设备不支持
+   * 
+   * @example
+   * // 示例代码：
+   * // 设置每天 08:00 自动开机
+   * const success = await KioskManager.setScheduledBoot(8, 0, true);
+   * if (success) {
+   *   console.log('定时开机设置成功');
+   * } else {
+   *   console.warn('设备可能不支持定时开机功能');
+   * }
+   * 
+   */
+  setScheduledBoot: (hour: number, minute: number, repeat: boolean) => Promise<boolean>;
+
+  /**
+   * 取消定时开机
+   * 
+   * 取消已设置的定时开机任务。
+   * 
+   * @returns Promise<boolean> - 返回 true 表示取消成功
+   * 
+   * @example
+   * // 示例代码：
+   * const success = await KioskManager.cancelScheduledBoot();
+   * if (success) {
+   *   console.log('定时开机已取消');
+   * }
+   * 
+   */
+  cancelScheduledBoot: () => Promise<boolean>;
+
+  /**
+   * 获取定时开机设置
+   * 
+   * 获取当前设置的定时开机配置。
+   * 
+   * @returns Promise<ScheduledPowerSettings | null> - 返回定时开机设置，如果未设置则返回 null
+   * 
+   * @example
+   * // 示例代码：
+   * const settings = await KioskManager.getScheduledBoot();
+   * if (settings) {
+   *   console.log(`定时开机: ${settings.hour}:${settings.minute}, 重复: ${settings.repeat}`);
+   * } else {
+   *   console.log('未设置定时开机');
+   * }
+   * 
+   */
+  getScheduledBoot: () => Promise<ScheduledPowerSettings | null>;
 }
+
+export type { ScheduledPowerSettings };

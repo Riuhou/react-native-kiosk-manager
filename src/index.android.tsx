@@ -1,4 +1,4 @@
-import type { KioskManagerType, DownloadProgress, InstallStatus } from './KioskManager.type';
+import type { KioskManagerType, DownloadProgress, InstallStatus, ScheduledPowerSettings } from './KioskManager.type';
 import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 
 // 只在Android平台上导入TurboModule
@@ -398,6 +398,57 @@ const KioskManager: KioskManagerType = {
       return Promise.resolve(0);
     }
     return KioskManagerTurboModule.clearAllDownloadedFiles();
+  },
+  
+  // ========== 定时开关机相关方法 ==========
+  setScheduledShutdown: (hour: number, minute: number, repeat: boolean) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.setScheduledShutdown(hour, minute, repeat);
+  },
+  cancelScheduledShutdown: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.cancelScheduledShutdown();
+  },
+  getScheduledShutdown: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(null);
+    }
+    return KioskManagerTurboModule.getScheduledShutdown();
+  },
+  performShutdown: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.performShutdown();
+  },
+  setScheduledBoot: (hour: number, minute: number, repeat: boolean) => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.setScheduledBoot(hour, minute, repeat);
+  },
+  cancelScheduledBoot: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(false);
+    }
+    return KioskManagerTurboModule.cancelScheduledBoot();
+  },
+  getScheduledBoot: () => {
+    if (!KioskManagerTurboModule) {
+      console.warn('KioskManager: TurboModule not available');
+      return Promise.resolve(null);
+    }
+    return KioskManagerTurboModule.getScheduledBoot();
   },
 };
 

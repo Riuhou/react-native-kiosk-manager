@@ -41,6 +41,13 @@
         <action android:name="${applicationId}.INSTALL_COMPLETE" />
       </intent-filter>
     </receiver>
+    <!-- 定时开关机接收器 -->
+    <receiver android:name=".PowerScheduleReceiver" android:enabled="true" android:exported="false">
+      <intent-filter>
+        <action android:name="com.riuhou.kioskmanager.SCHEDULED_SHUTDOWN" />
+        <action android:name="com.riuhou.kioskmanager.SCHEDULED_BOOT" />
+      </intent-filter>
+    </receiver>
     
     <!-- FileProvider for APK installation -->
     <provider

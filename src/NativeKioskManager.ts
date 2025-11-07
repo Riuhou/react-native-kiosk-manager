@@ -74,6 +74,15 @@ export interface Spec extends TurboModule {
   getDownloadedFiles(): Promise<DownloadedFile[]>;
   deleteDownloadedFile(filePath: string): Promise<boolean>;
   clearAllDownloadedFiles(): Promise<number>;
+  
+  // 定时开关机相关方法
+  setScheduledShutdown(hour: number, minute: number, repeat: boolean): Promise<boolean>;
+  cancelScheduledShutdown(): Promise<boolean>;
+  getScheduledShutdown(): Promise<{ enabled: boolean; hour: number; minute: number; repeat: boolean } | null>;
+  performShutdown(): Promise<boolean>;
+  setScheduledBoot(hour: number, minute: number, repeat: boolean): Promise<boolean>;
+  cancelScheduledBoot(): Promise<boolean>;
+  getScheduledBoot(): Promise<{ enabled: boolean; hour: number; minute: number; repeat: boolean } | null>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('KioskManager');

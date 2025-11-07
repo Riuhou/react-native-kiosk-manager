@@ -47,6 +47,7 @@ import com.riuhou.kioskmanager.managers.DeviceAdminManager
 import com.riuhou.kioskmanager.managers.KioskModeManager
 import com.riuhou.kioskmanager.managers.ApkDownloadManager
 import com.riuhou.kioskmanager.managers.AppLaunchManager
+import com.riuhou.kioskmanager.managers.PowerScheduleManager
 
 class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -65,6 +66,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   private val appLaunchManager = AppLaunchManager(reactContext) { status, packageName, message ->
     sendInstallStatusEvent(status, packageName, message)
   }
+  private val powerScheduleManager = PowerScheduleManager(reactContext)
 
   // 安装相关状态（保留在主模块中，因为与安装接收器紧密耦合）
   private var installReceiver: BroadcastReceiver? = null
@@ -1072,6 +1074,35 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
 
   @ReactMethod
   fun launchApp(packageName: String, promise: Promise) = appLaunchManager.launchApp(packageName, promise)
+
+  // === 定时开关机 ===
+  @ReactMethod
+  fun setScheduledShutdown(hour: Int, minute: Int, repeat: Boolean, promise: Promise) = 
+    powerScheduleManager.setScheduledShutdown(hour, minute, repeat, promise)
+
+  @ReactMethod
+  fun cancelScheduledShutdown(promise: Promise) = 
+    powerScheduleManager.cancelScheduledShutdown(promise)
+
+  @ReactMethod
+  fun getScheduledShutdown(promise: Promise) = 
+    powerScheduleManager.getScheduledShutdown(promise)
+
+  @ReactMethod
+  fun performShutdown(promise: Promise) = 
+    powerScheduleManager.performShutdown(promise)
+
+  @ReactMethod
+  fun setScheduledBoot(hour: Int, minute: Int, repeat: Boolean, promise: Promise) = 
+    powerScheduleManager.setScheduledBoot(hour, minute, repeat, promise)
+
+  @ReactMethod
+  fun cancelScheduledBoot(promise: Promise) = 
+    powerScheduleManager.cancelScheduledBoot(promise)
+
+  @ReactMethod
+  fun getScheduledBoot(promise: Promise) = 
+    powerScheduleManager.getScheduledBoot(promise)
 
   private fun startPollingForInstallCompletion(packageName: String, sessionId: Int) {
     val context = reactApplicationContext
