@@ -46,12 +46,21 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
 
   override fun getName(): String = "KioskManager"
 
-  // Observers & Receivers
-  private var brightnessObserver: ContentObserver? = null
-  private var volumeReceiver: BroadcastReceiver? = null
-  private var ringerReceiver: BroadcastReceiver? = null
+  // 管理器实例
+  private val brightnessManager = BrightnessManager(reactContext)
+  private val volumeManager = VolumeManager(reactContext)
+  private val systemObserver = SystemObserver(reactContext)
+  private val deviceAdminManager = DeviceAdminManager(reactContext)
+  private val kioskModeManager = KioskModeManager(reactContext)
+  private val apkDownloadManager = ApkDownloadManager(reactContext) { progress, bytesRead, totalBytes ->
+    sendProgressEvent(progress, bytesRead, totalBytes)
+  }
+  private val appLaunchManager = AppLaunchManager(reactContext) { status, packageName, message ->
+    sendInstallStatusEvent(status, packageName, message)
+  }
+
+  // 安装相关状态（保留在主模块中，因为与安装接收器紧密耦合）
   private var installReceiver: BroadcastReceiver? = null
-  private var isObservingAv: Boolean = false
   private var pendingInstallPackageName: String? = null
   private var pendingInstallSessionId: Int? = null
   private var pollingRunnable: Runnable? = null
@@ -74,540 +83,74 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  // === 屏幕亮度与音量控制 ===
+  // === 屏幕亮度控制 ===
+  @ReactMethod
+  fun hasWriteSettingsPermission(promise: Promise) = brightnessManager.hasWriteSettingsPermission(promise)
 
   @ReactMethod
-  fun hasWriteSettingsPermission(promise: Promise) {
-    try {
-      val has = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        Settings.System.canWrite(reactApplicationContext)
-      } else {
-        true
-      }
-      promise.resolve(has)
-    } catch (e: Exception) {
-      promise.reject("E_CHECK_FAILED", "Failed to check WRITE_SETTINGS: ${e.message}")
-    }
-  }
+  fun requestWriteSettingsPermission(promise: Promise) = brightnessManager.requestWriteSettingsPermission(promise)
 
   @ReactMethod
-  fun requestWriteSettingsPermission(promise: Promise) {
-    try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        val activity = reactContext.currentActivity
-        if (activity == null) {
-          promise.reject("E_NO_ACTIVITY", "No current activity")
-          return
-        }
-        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
-        intent.data = Uri.parse("package:${reactContext.packageName}")
-        activity.startActivity(intent)
-        promise.resolve(true)
-      } else {
-        promise.resolve(true)
-      }
-    } catch (e: Exception) {
-      promise.reject("E_REQUEST_FAILED", "Failed to request WRITE_SETTINGS: ${e.message}")
-    }
-  }
+  fun setSystemBrightness(value: Int, promise: Promise) = brightnessManager.setSystemBrightness(value, promise)
 
   @ReactMethod
-  fun setSystemBrightness(value: Int, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(context)) {
-        promise.reject("E_PERMISSION", "WRITE_SETTINGS permission not granted")
-        return
-      }
-      val clamped = value.coerceIn(0, 255)
-      val ok = Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, clamped)
-      promise.resolve(ok)
-    } catch (e: Exception) {
-      promise.reject("E_BRIGHTNESS_FAILED", "Failed to set system brightness: ${e.message}")
-    }
-  }
+  fun getSystemBrightness(promise: Promise) = brightnessManager.getSystemBrightness(promise)
 
   @ReactMethod
-  fun getSystemBrightness(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val current = Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 125)
-      promise.resolve(current)
-    } catch (e: Exception) {
-      promise.reject("E_BRIGHTNESS_FAILED", "Failed to get system brightness: ${e.message}")
-    }
-  }
+  fun setAppBrightness(value: Double) = brightnessManager.setAppBrightness(value)
 
   @ReactMethod
-  fun setAppBrightness(value: Double) {
-    val activity = reactContext.currentActivity ?: return
-    val clamped = value.coerceIn(0.0, 1.0).toFloat()
-    activity.runOnUiThread {
-      val params = activity.window.attributes
-      params.screenBrightness = clamped
-      activity.window.attributes = params
-    }
-  }
+  fun resetAppBrightness() = brightnessManager.resetAppBrightness()
 
   @ReactMethod
-  fun resetAppBrightness() {
-    val activity = reactContext.currentActivity ?: return
-    activity.runOnUiThread {
-      val params = activity.window.attributes
-      params.screenBrightness = -1f // 跟随系统亮度
-      activity.window.attributes = params
-    }
-  }
+  fun getAppBrightness(promise: Promise) = brightnessManager.getAppBrightness(promise)
+
+  // === 音量控制 ===
+  @ReactMethod
+  fun setVolume(stream: String, value: Double, promise: Promise) = volumeManager.setVolume(stream, value, promise)
 
   @ReactMethod
-  fun getAppBrightness(promise: Promise) {
-    try {
-      val activity = reactContext.currentActivity
-      if (activity == null) {
-        promise.reject("E_NO_ACTIVITY", "No current activity")
-        return
-      }
-      val v = activity.window.attributes.screenBrightness
-      // -1 代表遵循系统亮度
-      promise.resolve(v.toDouble())
-    } catch (e: Exception) {
-      promise.reject("E_BRIGHTNESS_FAILED", "Failed to get app brightness: ${e.message}")
-    }
-  }
-
-  private fun mapStream(stream: String): Int {
-    return when (stream.lowercase()) {
-      "music" -> AudioManager.STREAM_MUSIC
-      "ring" -> AudioManager.STREAM_RING
-      "alarm" -> AudioManager.STREAM_ALARM
-      "notification" -> AudioManager.STREAM_NOTIFICATION
-      "system" -> AudioManager.STREAM_SYSTEM
-      "voice_call" -> AudioManager.STREAM_VOICE_CALL
-      "dtmf" -> AudioManager.STREAM_DTMF
-      else -> AudioManager.STREAM_MUSIC
-    }
-  }
+  fun getVolume(stream: String, promise: Promise) = volumeManager.getVolume(stream, promise)
 
   @ReactMethod
-  fun setVolume(stream: String, value: Double, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streamType = mapStream(stream)
-      val max = am.getStreamMaxVolume(streamType)
-      val index = (value.coerceIn(0.0, 1.0) * max).roundToInt()
-      am.setStreamVolume(streamType, index, 0)
-      promise.resolve(true)
-    } catch (e: Exception) {
-      promise.reject("E_VOLUME_FAILED", "Failed to set volume: ${e.message}")
-    }
-  }
+  fun getMaxVolume(stream: String, promise: Promise) = volumeManager.getMaxVolume(stream, promise)
 
   @ReactMethod
-  fun getVolume(stream: String, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streamType = mapStream(stream)
-      val current = am.getStreamVolume(streamType)
-      val max = am.getStreamMaxVolume(streamType)
-      val ratio = if (max > 0) current.toDouble() / max.toDouble() else 0.0
-      promise.resolve(ratio)
-    } catch (e: Exception) {
-      promise.reject("E_VOLUME_FAILED", "Failed to get volume: ${e.message}")
-    }
-  }
+  fun setGlobalVolume(value: Double, promise: Promise) = volumeManager.setGlobalVolume(value, promise)
 
   @ReactMethod
-  fun getMaxVolume(stream: String, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streamType = mapStream(stream)
-      val max = am.getStreamMaxVolume(streamType)
-      promise.resolve(max)
-    } catch (e: Exception) {
-      promise.reject("E_VOLUME_FAILED", "Failed to get max volume: ${e.message}")
-    }
-  }
+  fun getGlobalVolume(promise: Promise) = volumeManager.getGlobalVolume(promise)
 
   @ReactMethod
-  fun setGlobalVolume(value: Double, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val clamped = value.coerceIn(0.0, 1.0)
-      val streams = listOf(
-        AudioManager.STREAM_MUSIC,
-        AudioManager.STREAM_RING,
-        AudioManager.STREAM_ALARM,
-        AudioManager.STREAM_NOTIFICATION,
-        AudioManager.STREAM_SYSTEM,
-        AudioManager.STREAM_VOICE_CALL,
-        AudioManager.STREAM_DTMF
-      )
-      streams.forEach { st ->
-        val max = am.getStreamMaxVolume(st)
-        val index = (clamped * max).roundToInt()
-        am.setStreamVolume(st, index, 0)
-      }
-      promise.resolve(true)
-    } catch (e: Exception) {
-      promise.reject("E_VOLUME_FAILED", "Failed to set global volume: ${e.message}")
-    }
-  }
+  fun setMute(stream: String, muted: Boolean, promise: Promise) = volumeManager.setMute(stream, muted, promise)
 
   @ReactMethod
-  fun getGlobalVolume(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streams = listOf(
-        AudioManager.STREAM_MUSIC,
-        AudioManager.STREAM_RING,
-        AudioManager.STREAM_ALARM,
-        AudioManager.STREAM_NOTIFICATION,
-        AudioManager.STREAM_SYSTEM,
-        AudioManager.STREAM_VOICE_CALL,
-        AudioManager.STREAM_DTMF
-      )
-      var sum = 0.0
-      var count = 0
-      streams.forEach { st ->
-        val max = am.getStreamMaxVolume(st)
-        if (max > 0) {
-          val cur = am.getStreamVolume(st)
-          sum += cur.toDouble() / max.toDouble()
-          count++
-        }
-      }
-      val avg = if (count > 0) sum / count else 0.0
-      promise.resolve(avg)
-    } catch (e: Exception) {
-      promise.reject("E_VOLUME_FAILED", "Failed to get global volume: ${e.message}")
-    }
-  }
-
-  // === 静音控制 ===
-  @ReactMethod
-  fun setMute(stream: String, muted: Boolean, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streamType = mapStream(stream)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        if (muted) {
-          am.adjustStreamVolume(streamType, AudioManager.ADJUST_MUTE, 0)
-        } else {
-          am.adjustStreamVolume(streamType, AudioManager.ADJUST_UNMUTE, 0)
-        }
-      } else {
-        @Suppress("DEPRECATION")
-        am.setStreamMute(streamType, muted)
-      }
-      promise.resolve(true)
-    } catch (e: Exception) {
-      promise.reject("E_MUTE_FAILED", "Failed to set mute: ${e.message}")
-    }
-  }
+  fun isMuted(stream: String, promise: Promise) = volumeManager.isMuted(stream, promise)
 
   @ReactMethod
-  fun isMuted(stream: String, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streamType = mapStream(stream)
-      val muted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        am.isStreamMute(streamType)
-      } else {
-        // 低版本无直接API，使用音量为0作为近似判断
-        am.getStreamVolume(streamType) == 0
-      }
-      promise.resolve(muted)
-    } catch (e: Exception) {
-      promise.reject("E_MUTE_FAILED", "Failed to get mute state: ${e.message}")
-    }
-  }
+  fun setGlobalMute(muted: Boolean, promise: Promise) = volumeManager.setGlobalMute(muted, promise)
 
   @ReactMethod
-  fun setGlobalMute(muted: Boolean, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streams = listOf(
-        AudioManager.STREAM_MUSIC,
-        AudioManager.STREAM_RING,
-        AudioManager.STREAM_ALARM,
-        AudioManager.STREAM_NOTIFICATION,
-        AudioManager.STREAM_SYSTEM,
-        AudioManager.STREAM_VOICE_CALL,
-        AudioManager.STREAM_DTMF
-      )
-      streams.forEach { st ->
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-          if (muted) {
-            am.adjustStreamVolume(st, AudioManager.ADJUST_MUTE, 0)
-          } else {
-            am.adjustStreamVolume(st, AudioManager.ADJUST_UNMUTE, 0)
-          }
-        } else {
-          @Suppress("DEPRECATION")
-          am.setStreamMute(st, muted)
-        }
-      }
-      promise.resolve(true)
-    } catch (e: Exception) {
-      promise.reject("E_MUTE_FAILED", "Failed to set global mute: ${e.message}")
-    }
-  }
+  fun isGlobalMuted(promise: Promise) = volumeManager.isGlobalMuted(promise)
 
   @ReactMethod
-  fun isGlobalMuted(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val streams = listOf(
-        AudioManager.STREAM_MUSIC,
-        AudioManager.STREAM_RING,
-        AudioManager.STREAM_ALARM,
-        AudioManager.STREAM_NOTIFICATION,
-        AudioManager.STREAM_SYSTEM,
-        AudioManager.STREAM_VOICE_CALL,
-        AudioManager.STREAM_DTMF
-      )
-      val allMuted = streams.all { st ->
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-          am.isStreamMute(st)
-        } else {
-          am.getStreamVolume(st) == 0
-        }
-      }
-      promise.resolve(allMuted)
-    } catch (e: Exception) {
-      promise.reject("E_MUTE_FAILED", "Failed to get global mute state: ${e.message}")
-    }
-  }
+  fun getRingerMode(promise: Promise) = volumeManager.getRingerMode(promise)
 
-  // === 系统铃声模式（类似点击系统音量图标） ===
   @ReactMethod
-  fun getRingerMode(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val mode = am.ringerMode // 0: silent, 1: vibrate, 2: normal
-      val modeStr = when (mode) {
-        AudioManager.RINGER_MODE_SILENT -> "silent"
-        AudioManager.RINGER_MODE_VIBRATE -> "vibrate"
-        else -> "normal"
-      }
-      promise.resolve(modeStr)
-    } catch (e: Exception) {
-      promise.reject("E_RINGER_FAILED", "Failed to get ringer mode: ${e.message}")
-    }
-  }
+  fun setRingerMode(mode: String, promise: Promise) = volumeManager.setRingerMode(mode, promise)
+
+  @ReactMethod
+  fun hasNotificationPolicyAccess(promise: Promise) = volumeManager.hasNotificationPolicyAccess(promise)
+
+  @ReactMethod
+  fun requestNotificationPolicyAccess(promise: Promise) = volumeManager.requestNotificationPolicyAccess(promise)
 
   // === 系统亮度与音量变更监听 ===
   @ReactMethod
-  fun startObservingSystemAv() {
-    if (isObservingAv) return
-    isObservingAv = true
-
-    val context = reactApplicationContext
-    // Brightness observer
-    val handler = Handler(Looper.getMainLooper())
-    brightnessObserver = object : ContentObserver(handler) {
-      override fun onChange(selfChange: Boolean) {
-        try {
-          val current = Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 125)
-          val map = Arguments.createMap()
-          map.putInt("brightness", current)
-          reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-            .emit("KioskManagerSystemBrightnessChanged", map)
-        } catch (_: Exception) {}
-      }
-    }
-    try {
-      context.contentResolver.registerContentObserver(
-        Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS),
-        false,
-        brightnessObserver as ContentObserver
-      )
-    } catch (_: Exception) {}
-
-    // Volume receiver
-    volumeReceiver = object : BroadcastReceiver() {
-      override fun onReceive(ctx: Context?, intent: Intent?) {
-        if (intent == null) return
-        if (intent.action == "android.media.VOLUME_CHANGED_ACTION") {
-          try {
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val streamType = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", AudioManager.STREAM_MUSIC)
-            val index = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", am.getStreamVolume(streamType))
-            val max = am.getStreamMaxVolume(streamType)
-            val ratio = if (max > 0) index.toDouble() / max.toDouble() else 0.0
-
-            val streamName = when (streamType) {
-              AudioManager.STREAM_MUSIC -> "music"
-              AudioManager.STREAM_RING -> "ring"
-              AudioManager.STREAM_ALARM -> "alarm"
-              AudioManager.STREAM_NOTIFICATION -> "notification"
-              AudioManager.STREAM_SYSTEM -> "system"
-              AudioManager.STREAM_VOICE_CALL -> "voice_call"
-              AudioManager.STREAM_DTMF -> "dtmf"
-              else -> "music"
-            }
-
-            val payload = Arguments.createMap()
-            payload.putString("stream", streamName)
-            payload.putInt("index", index)
-            payload.putInt("max", max)
-            payload.putDouble("value", ratio)
-            reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-              .emit("KioskManagerVolumeChanged", payload)
-
-            // Also emit global volume average
-            try {
-              val streams = listOf(
-                AudioManager.STREAM_MUSIC,
-                AudioManager.STREAM_RING,
-                AudioManager.STREAM_ALARM,
-                AudioManager.STREAM_NOTIFICATION,
-                AudioManager.STREAM_SYSTEM,
-                AudioManager.STREAM_VOICE_CALL,
-                AudioManager.STREAM_DTMF
-              )
-              var sum = 0.0
-              var count = 0
-              streams.forEach { st ->
-                val m = am.getStreamMaxVolume(st)
-                if (m > 0) {
-                  val cur = am.getStreamVolume(st)
-                  sum += cur.toDouble() / m.toDouble()
-                  count++
-                }
-              }
-              val avg = if (count > 0) sum / count else 0.0
-              val g = Arguments.createMap()
-              g.putDouble("value", avg)
-              reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                .emit("KioskManagerGlobalVolumeChanged", g)
-            } catch (_: Exception) {}
-          } catch (_: Exception) {}
-        }
-      }
-    }
-    try {
-      context.registerReceiver(volumeReceiver, IntentFilter("android.media.VOLUME_CHANGED_ACTION"))
-    } catch (_: Exception) {}
-
-    // Ringer mode receiver
-    ringerReceiver = object : BroadcastReceiver() {
-      override fun onReceive(ctx: Context?, intent: Intent?) {
-        if (intent?.action == AudioManager.RINGER_MODE_CHANGED_ACTION) {
-          try {
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val mode = am.ringerMode
-            val modeStr = when (mode) {
-              AudioManager.RINGER_MODE_SILENT -> "silent"
-              AudioManager.RINGER_MODE_VIBRATE -> "vibrate"
-              else -> "normal"
-            }
-            val m = Arguments.createMap()
-            m.putString("mode", modeStr)
-            reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-              .emit("KioskManagerRingerModeChanged", m)
-          } catch (_: Exception) {}
-        }
-      }
-    }
-    try {
-      context.registerReceiver(ringerReceiver, IntentFilter(AudioManager.RINGER_MODE_CHANGED_ACTION))
-    } catch (_: Exception) {}
-  }
+  fun startObservingSystemAv() = systemObserver.startObservingSystemAv()
 
   @ReactMethod
-  fun stopObservingSystemAv() {
-    val context = reactApplicationContext
-    try {
-      if (brightnessObserver != null) {
-        context.contentResolver.unregisterContentObserver(brightnessObserver as ContentObserver)
-        brightnessObserver = null
-      }
-    } catch (_: Exception) {}
-    try {
-      if (volumeReceiver != null) {
-        context.unregisterReceiver(volumeReceiver)
-        volumeReceiver = null
-      }
-    } catch (_: Exception) {}
-    try {
-      if (ringerReceiver != null) {
-        context.unregisterReceiver(ringerReceiver)
-        ringerReceiver = null
-      }
-    } catch (_: Exception) {}
-    isObservingAv = false
-  }
-
-  @ReactMethod
-  fun setRingerMode(mode: String, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-      val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-      // Android 6.0+ 某些机型在切换到静音/震动时需要免打扰权限
-      val target = when (mode.lowercase()) {
-        "silent" -> AudioManager.RINGER_MODE_SILENT
-        "vibrate" -> AudioManager.RINGER_MODE_VIBRATE
-        else -> AudioManager.RINGER_MODE_NORMAL
-      }
-
-      if ((target == AudioManager.RINGER_MODE_SILENT || target == AudioManager.RINGER_MODE_VIBRATE)
-        && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-        && !nm.isNotificationPolicyAccessGranted) {
-        promise.reject("E_PERMISSION", "Notification policy access not granted")
-        return
-      }
-
-      am.ringerMode = target
-      promise.resolve(true)
-    } catch (e: Exception) {
-      promise.reject("E_RINGER_FAILED", "Failed to set ringer mode: ${e.message}")
-    }
-  }
-
-  @ReactMethod
-  fun hasNotificationPolicyAccess(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-      val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) nm.isNotificationPolicyAccessGranted else true
-      promise.resolve(granted)
-    } catch (e: Exception) {
-      promise.reject("E_CHECK_FAILED", "Failed to check notification policy access: ${e.message}")
-    }
-  }
-
-  @ReactMethod
-  fun requestNotificationPolicyAccess(promise: Promise) {
-    try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        val activity = reactContext.currentActivity
-        if (activity == null) {
-          promise.reject("E_NO_ACTIVITY", "No current activity")
-          return
-        }
-        val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
-        activity.startActivity(intent)
-        promise.resolve(true)
-      } else {
-        promise.resolve(true)
-      }
-    } catch (e: Exception) {
-      promise.reject("E_REQUEST_FAILED", "Failed to request notification policy access: ${e.message}")
-    }
-  }
+  fun stopObservingSystemAv() = systemObserver.stopObservingSystemAv()
 
   @ReactMethod
   fun stopKiosk() {
@@ -631,293 +174,22 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     promise.resolve(enabled)
   }
 
+  // === 设备管理员 ===
   @ReactMethod
-  fun requestDeviceAdmin(promise: Promise) {
-    val activity = reactContext.currentActivity
-    if (activity == null) {
-      promise.reject("E_NO_ACTIVITY", "No current activity")
-      return
-    }
-
-    try {
-      val context = reactApplicationContext
-      val componentName = ComponentName(context, DeviceAdminReceiver::class.java)
-      val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-      intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
-      intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Enable device admin to allow kiosk mode.")
-
-      activity.startActivity(intent)
-      promise.resolve(true)
-    } catch (e: Exception) {
-      promise.reject("E_REQUEST_FAILED", "Failed to request device admin: ${e.message}")
-    }
-  }
+  fun requestDeviceAdmin(promise: Promise) = deviceAdminManager.requestDeviceAdmin(promise)
 
   @ReactMethod
-  fun setupLockTaskPackage(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-      val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
-
-      if (dpm.isDeviceOwnerApp(context.packageName)) {
-        dpm.setLockTaskPackages(adminComponent, arrayOf(context.packageName))
-        promise.resolve(true)
-      } else {
-        Log.w("KioskManager", "App is not device owner")
-        promise.reject("E_NOT_DEVICE_OWNER", "App is not device owner")
-      }
-    } catch (e: Exception) {
-      promise.reject("E_SETUP_FAILED", "Failed to setup lock task package: ${e.message}")
-    }
-  }
+  fun setupLockTaskPackage(promise: Promise) = deviceAdminManager.setupLockTaskPackage(promise)
 
   @ReactMethod
-  fun clearDeviceOwner(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-      val adminComponent = ComponentName(context, DeviceAdminReceiver::class.java)
-
-      if (dpm.isDeviceOwnerApp(context.packageName)) {
-        // Clear lock task packages first
-        dpm.setLockTaskPackages(adminComponent, arrayOf())
-        
-        // Remove device owner
-        dpm.clearDeviceOwnerApp(context.packageName)
-        
-        Log.i("KioskManager", "Device owner cleared successfully")
-        promise.resolve(true)
-      } else {
-        Log.w("KioskManager", "App is not device owner")
-        promise.reject("E_NOT_DEVICE_OWNER", "App is not device owner")
-      }
-    } catch (e: Exception) {
-      Log.e("KioskManager", "Failed to clear device owner: ${e.message}")
-      promise.reject("E_CLEAR_FAILED", "Failed to clear device owner: ${e.message}")
-    }
-  }
+  fun clearDeviceOwner(promise: Promise) = deviceAdminManager.clearDeviceOwner(promise)
 
   @ReactMethod
-  fun isDeviceOwner(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-      val isOwner = dpm.isDeviceOwnerApp(context.packageName)
-      promise.resolve(isOwner)
-    } catch (e: Exception) {
-      promise.reject("E_CHECK_FAILED", "Failed to check device owner status: ${e.message}")
-    }
-  }
+  fun isDeviceOwner(promise: Promise) = deviceAdminManager.isDeviceOwner(promise)
 
+  // === APK下载 ===
   @ReactMethod
-  fun downloadApk(url: String, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      
-      // 从 URL 中提取文件名
-      var fileName = extractFileNameFromUrl(url)
-      val downloadsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "apk_updates")
-      if (!downloadsDir.exists()) {
-        downloadsDir.mkdirs()
-      }
-      
-      val connection = URL(url).openConnection() as HttpURLConnection
-      connection.requestMethod = "GET"
-      connection.connect()
-      
-      if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-        promise.reject("E_DOWNLOAD_FAILED", "HTTP error: ${connection.responseCode}")
-        return
-      }
-      
-      // 尝试从 Content-Disposition 头中获取文件名（更准确）
-      fileName = extractFileNameFromContentDisposition(connection, fileName)
-      
-      val apkFile = File(downloadsDir, fileName)
-      
-      // 如果文件已存在，删除它（覆盖）
-      if (apkFile.exists()) {
-        val deleted = apkFile.delete()
-        if (deleted) {
-          Log.i("KioskManager", "已删除现有文件: $fileName")
-        } else {
-          Log.w("KioskManager", "无法删除现有文件: $fileName，将尝试覆盖")
-        }
-      }
-      
-      // 打印下载开始信息
-      Log.i("KioskManager", "=== 开始下载 ===")
-      Log.i("KioskManager", "下载URL: $url")
-      Log.i("KioskManager", "目标文件名: $fileName")
-      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
-      Log.i("KioskManager", "完整路径: ${apkFile.absolutePath}")
-      Log.i("KioskManager", "目录存在: ${downloadsDir.exists()}")
-      Log.i("KioskManager", "目录可写: ${downloadsDir.canWrite()}")
-      Log.i("KioskManager", "==================")
-      
-      val inputStream: InputStream = connection.inputStream
-      val outputStream = FileOutputStream(apkFile)
-      
-      val buffer = ByteArray(4096)
-      var bytesRead: Int
-      var totalBytesRead = 0L
-      val contentLength = connection.contentLength.toLong()
-      var lastProgressSent = -1
-      
-      while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-        outputStream.write(buffer, 0, bytesRead)
-        totalBytesRead += bytesRead
-        
-        // 发送进度更新（每5%发送一次，避免过于频繁）
-        if (contentLength > 0) {
-          val progress = (totalBytesRead * 100 / contentLength).toInt()
-          if (progress >= lastProgressSent + 5 || progress == 100) {
-            lastProgressSent = progress
-            sendProgressEvent(progress, totalBytesRead, contentLength)
-          }
-        }
-      }
-      
-      inputStream.close()
-      outputStream.close()
-      connection.disconnect()
-      
-      // 打印下载文件的详细信息
-      Log.i("KioskManager", "=== 下载完成 ===")
-      Log.i("KioskManager", "文件名: $fileName")
-      Log.i("KioskManager", "文件路径: ${apkFile.absolutePath}")
-      Log.i("KioskManager", "文件大小: ${apkFile.length()} 字节 (${apkFile.length() / 1024 / 1024} MB)")
-      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
-      Log.i("KioskManager", "文件是否存在: ${apkFile.exists()}")
-      Log.i("KioskManager", "文件可读: ${apkFile.canRead()}")
-      Log.i("KioskManager", "文件可写: ${apkFile.canWrite()}")
-      Log.i("KioskManager", "==================")
-      
-      val result = Arguments.createMap()
-      result.putString("filePath", apkFile.absolutePath)
-      result.putString("fileName", fileName)
-      result.putLong("fileSize", apkFile.length())
-      promise.resolve(result)
-      
-    } catch (e: Exception) {
-      Log.e("KioskManager", "Download failed: ${e.message}")
-      promise.reject("E_DOWNLOAD_FAILED", "Download failed: ${e.message}")
-    }
-  }
-
-  /**
-   * 从 Content-Disposition HTTP 头中提取文件名
-   */
-  private fun extractFileNameFromContentDisposition(connection: HttpURLConnection, fallbackFileName: String): String {
-    try {
-      val contentDisposition = connection.getHeaderField("Content-Disposition")
-      if (contentDisposition != null) {
-        // Content-Disposition 格式: 
-        // attachment; filename="example.apk"
-        // attachment; filename=example.apk
-        // attachment; filename*=UTF-8''example.apk
-        
-        // 先尝试匹配 filename*=UTF-8''... 格式
-        val filenameStarPattern = Regex("filename\\*=([^;]+)", RegexOption.IGNORE_CASE)
-        val starMatch = filenameStarPattern.find(contentDisposition)
-        if (starMatch != null) {
-          var extractedName = starMatch.groupValues[1].trim()
-          
-          // 处理 UTF-8'' 前缀
-          if (extractedName.contains("''")) {
-            extractedName = extractedName.substringAfter("''")
-          }
-          
-          // 去掉引号
-          extractedName = extractedName.trim('"', '\'')
-          
-          // URL 解码
-          try {
-            extractedName = java.net.URLDecoder.decode(extractedName, "UTF-8")
-          } catch (e: Exception) {
-            // 如果解码失败，使用原始名称
-          }
-          
-          // 清理文件名
-          extractedName = sanitizeFileName(extractedName)
-          
-          if (extractedName.isNotEmpty() && extractedName.endsWith(".apk", ignoreCase = true)) {
-            Log.i("KioskManager", "从 Content-Disposition (filename*) 提取的文件名: $extractedName")
-            return extractedName
-          }
-        }
-        
-        // 尝试匹配 filename="..." 或 filename=... 格式
-        val filenamePattern = Regex("filename=([^;]+)", RegexOption.IGNORE_CASE)
-        val match = filenamePattern.find(contentDisposition)
-        if (match != null) {
-          var extractedName = match.groupValues[1].trim()
-          
-          // 去掉引号
-          extractedName = extractedName.trim('"', '\'')
-          
-          // 清理文件名
-          extractedName = sanitizeFileName(extractedName)
-          
-          // 确保以 .apk 结尾
-          if (extractedName.isNotEmpty() && extractedName.endsWith(".apk", ignoreCase = true)) {
-            Log.i("KioskManager", "从 Content-Disposition (filename) 提取的文件名: $extractedName")
-            return extractedName
-          }
-        }
-      }
-    } catch (e: Exception) {
-      Log.w("KioskManager", "从 Content-Disposition 提取文件名失败: ${e.message}")
-    }
-    return fallbackFileName
-  }
-
-  /**
-   * 清理文件名，移除不安全的字符
-   */
-  private fun sanitizeFileName(fileName: String): String {
-    var cleaned = fileName
-    // 移除不安全的字符，保留字母、数字、点、下划线、连字符
-    cleaned = cleaned.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-    // 限制文件名长度
-    if (cleaned.length > 255) {
-      val extension = if (cleaned.endsWith(".apk", ignoreCase = true)) ".apk" else ""
-      val nameWithoutExt = cleaned.substring(0, cleaned.length - extension.length)
-      cleaned = "${nameWithoutExt.take(255 - extension.length)}$extension"
-    }
-    return cleaned
-  }
-
-  /**
-   * 从 URL 中提取文件名
-   * 如果 URL 中没有有效的文件名，则使用默认名称
-   */
-  private fun extractFileNameFromUrl(url: String): String {
-    try {
-      val urlObj = URL(url)
-      var fileName = urlObj.path.substringAfterLast('/')
-      
-      // 去掉查询参数和锚点
-      fileName = fileName.split('?')[0].split('#')[0]
-      
-      // 清理文件名
-      fileName = sanitizeFileName(fileName)
-      
-      // 如果文件名为空或不以 .apk 结尾，使用默认名称
-      if (fileName.isEmpty() || !fileName.endsWith(".apk", ignoreCase = true)) {
-        val defaultName = "app_${System.currentTimeMillis()}.apk"
-        Log.i("KioskManager", "无法从 URL 提取有效文件名，使用默认名称: $defaultName")
-        return defaultName
-      }
-      
-      Log.i("KioskManager", "从 URL 提取的文件名: $fileName")
-      return fileName
-    } catch (e: Exception) {
-      Log.w("KioskManager", "提取文件名失败: ${e.message}，使用默认名称")
-      return "app_${System.currentTimeMillis()}.apk"
-    }
-  }
+  fun downloadApk(url: String, promise: Promise) = apkDownloadManager.downloadApk(url, promise)
 
   private fun sendProgressEvent(progress: Int, bytesRead: Long, totalBytes: Long) {
     try {
@@ -1120,116 +392,13 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
-  fun getDownloadedFiles(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val downloadsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "apk_updates")
-      
-      if (!downloadsDir.exists()) {
-        promise.resolve(Arguments.createArray())
-        return
-      }
-      
-      val files = downloadsDir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") } ?: emptyList()
-      val fileList = Arguments.createArray()
-      
-      files.sortedByDescending { it.lastModified() }.forEach { file ->
-        val fileInfo = Arguments.createMap()
-        fileInfo.putString("fileName", file.name)
-        fileInfo.putString("filePath", file.absolutePath)
-        fileInfo.putLong("fileSize", file.length())
-        fileInfo.putDouble("lastModified", file.lastModified().toDouble())
-        fileInfo.putBoolean("canRead", file.canRead())
-        fileInfo.putBoolean("canWrite", file.canWrite())
-        fileList.pushMap(fileInfo)
-      }
-      
-      Log.i("KioskManager", "=== 获取下载文件列表 ===")
-      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
-      Log.i("KioskManager", "找到 ${files.size} 个 APK 文件")
-      files.forEach { file ->
-        Log.i("KioskManager", "文件: ${file.name} (${file.length()} 字节)")
-      }
-      Log.i("KioskManager", "==================")
-      
-      promise.resolve(fileList)
-    } catch (e: Exception) {
-      Log.e("KioskManager", "Failed to get downloaded files: ${e.message}")
-      promise.reject("E_GET_FILES_FAILED", "Failed to get downloaded files: ${e.message}")
-    }
-  }
+  fun getDownloadedFiles(promise: Promise) = apkDownloadManager.getDownloadedFiles(promise)
 
   @ReactMethod
-  fun deleteDownloadedFile(filePath: String, promise: Promise) {
-    try {
-      val file = File(filePath)
-      
-      Log.i("KioskManager", "=== 删除文件 ===")
-      Log.i("KioskManager", "文件路径: $filePath")
-      Log.i("KioskManager", "文件存在: ${file.exists()}")
-      Log.i("KioskManager", "文件大小: ${file.length()} 字节")
-      Log.i("KioskManager", "==================")
-      
-      if (!file.exists()) {
-        promise.reject("E_FILE_NOT_FOUND", "File not found: $filePath")
-        return
-      }
-      
-      if (!file.canWrite()) {
-        promise.reject("E_FILE_NOT_WRITABLE", "File is not writable: $filePath")
-        return
-      }
-      
-      val deleted = file.delete()
-      if (deleted) {
-        Log.i("KioskManager", "文件删除成功: $filePath")
-        promise.resolve(true)
-      } else {
-        Log.e("KioskManager", "文件删除失败: $filePath")
-        promise.reject("E_DELETE_FAILED", "Failed to delete file: $filePath")
-      }
-    } catch (e: Exception) {
-      Log.e("KioskManager", "Failed to delete file: ${e.message}")
-      promise.reject("E_DELETE_FAILED", "Failed to delete file: ${e.message}")
-    }
-  }
+  fun deleteDownloadedFile(filePath: String, promise: Promise) = apkDownloadManager.deleteDownloadedFile(filePath, promise)
 
   @ReactMethod
-  fun clearAllDownloadedFiles(promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val downloadsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "apk_updates")
-      
-      if (!downloadsDir.exists()) {
-        promise.resolve(0)
-        return
-      }
-      
-      val files = downloadsDir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") } ?: emptyList()
-      var deletedCount = 0
-      
-      Log.i("KioskManager", "=== 清空下载文件 ===")
-      Log.i("KioskManager", "下载目录: ${downloadsDir.absolutePath}")
-      Log.i("KioskManager", "找到 ${files.size} 个 APK 文件")
-      
-      files.forEach { file ->
-        if (file.delete()) {
-          deletedCount++
-          Log.i("KioskManager", "已删除: ${file.name}")
-        } else {
-          Log.e("KioskManager", "删除失败: ${file.name}")
-        }
-      }
-      
-      Log.i("KioskManager", "成功删除 $deletedCount 个文件")
-      Log.i("KioskManager", "==================")
-      
-      promise.resolve(deletedCount)
-    } catch (e: Exception) {
-      Log.e("KioskManager", "Failed to clear downloaded files: ${e.message}")
-      promise.reject("E_CLEAR_FILES_FAILED", "Failed to clear downloaded files: ${e.message}")
-    }
-  }
+  fun clearAllDownloadedFiles(promise: Promise) = apkDownloadManager.clearAllDownloadedFiles(promise)
 
   @ReactMethod
   fun silentInstallApk(filePath: String, promise: Promise) {
@@ -1618,7 +787,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
                   Handler(Looper.getMainLooper()).postDelayed({
                     try {
                       sendInstallStatusEvent("launching", finalPackageName, "正在启动应用")
-                      launchAppInternal(finalPackageName)
+                      appLaunchManager.launchAppInternal(finalPackageName)
                     } catch (e: Exception) {
                       Log.e("KioskManager", "启动应用失败: ${e.message}")
                       sendInstallStatusEvent("launch_failed", finalPackageName, "启动失败: ${e.message}")
@@ -1890,125 +1059,12 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  // === 应用启动 ===
   @ReactMethod
-  fun isAppInstalled(packageName: String, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val packageManager = context.packageManager
-      
-      // 方式1: 先尝试使用 PackageManager API
-      var isInstalled = false
-      try {
-        val appInfo = packageManager.getApplicationInfo(packageName, 0)
-        isInstalled = true
-        Log.i("KioskManager", "✓ 通过 getApplicationInfo 检测到应用已安装: $packageName")
-        Log.i("KioskManager", "包信息: enabled=${appInfo.enabled}")
-      } catch (e: PackageManager.NameNotFoundException) {
-        Log.i("KioskManager", "✗ 通过 getApplicationInfo 未检测到应用: $packageName")
-      } catch (e: Exception) {
-        Log.w("KioskManager", "getApplicationInfo 检查时出现异常: ${e.message}")
-      }
-      
-      // 方式2: 如果 PackageManager API 找不到，使用 shell 命令检测（更可靠）
-      if (!isInstalled) {
-        try {
-          val process = Runtime.getRuntime().exec("pm list packages")
-          val reader = BufferedReader(InputStreamReader(process.inputStream))
-          var line: String?
-          
-          while (reader.readLine().also { line = it } != null) {
-            // pm list packages 输出格式: package:com.example.app
-            if (line!!.trim().equals("package:$packageName", ignoreCase = true)) {
-              isInstalled = true
-              Log.i("KioskManager", "✓ 通过 pm list packages 检测到应用已安装: $packageName")
-              break
-            }
-          }
-          
-          reader.close()
-          process.waitFor()
-          
-          if (!isInstalled) {
-            Log.i("KioskManager", "✗ 通过 pm list packages 也未检测到应用: $packageName")
-          }
-        } catch (e: Exception) {
-          Log.w("KioskManager", "使用 shell 命令检测时出现异常: ${e.message}")
-        }
-      }
-      
-      promise.resolve(isInstalled)
-    } catch (e: Exception) {
-      Log.e("KioskManager", "检查应用安装状态失败: ${e.message}", e)
-      promise.reject("E_CHECK_FAILED", "Failed to check if app is installed: ${e.message}")
-    }
-  }
+  fun isAppInstalled(packageName: String, promise: Promise) = appLaunchManager.isAppInstalled(packageName, promise)
 
   @ReactMethod
-  fun launchApp(packageName: String, promise: Promise) {
-    try {
-      val context = reactApplicationContext
-      val packageManager = context.packageManager
-      
-      Log.i("KioskManager", "=== 开始启动应用 ===")
-      Log.i("KioskManager", "包名: $packageName")
-      
-      // 检查应用是否已安装 - 使用多种方式尝试
-      var isInstalled = false
-      try {
-        // 方式1: 使用 GET_ACTIVITIES flag
-        packageManager.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES)
-        isInstalled = true
-        Log.i("KioskManager", "应用已安装 (方式1)")
-      } catch (e: PackageManager.NameNotFoundException) {
-        try {
-          // 方式2: 使用 0 flag
-          packageManager.getPackageInfo(packageName, 0)
-          isInstalled = true
-          Log.i("KioskManager", "应用已安装 (方式2)")
-        } catch (e2: PackageManager.NameNotFoundException) {
-          // 方式3: 尝试获取启动意图（即使没有包信息，也可能有启动意图）
-          val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-          if (launchIntent != null) {
-            isInstalled = true
-            Log.i("KioskManager", "应用已安装 (方式3: 通过启动意图检测)")
-          } else {
-            Log.e("KioskManager", "应用未安装: $packageName")
-            Log.e("KioskManager", "所有检查方式都失败")
-            promise.reject("E_APP_NOT_FOUND", "App not found: $packageName")
-            return
-          }
-        }
-      }
-      
-      if (!isInstalled) {
-        Log.e("KioskManager", "应用未安装: $packageName")
-        promise.reject("E_APP_NOT_FOUND", "App not found: $packageName")
-        return
-      }
-      
-      // 获取应用的主Activity
-      val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-      if (launchIntent != null) {
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        
-        context.startActivity(launchIntent)
-        
-        Log.i("KioskManager", "=== 应用启动成功 ===")
-        Log.i("KioskManager", "包名: $packageName")
-        Log.i("KioskManager", "==================")
-        
-        promise.resolve(true)
-      } else {
-        Log.e("KioskManager", "No launch intent found for package: $packageName")
-        promise.reject("E_NO_LAUNCH_INTENT", "No launch intent found for package: $packageName")
-      }
-    } catch (e: Exception) {
-      Log.e("KioskManager", "Failed to launch app: ${e.message}", e)
-      promise.reject("E_LAUNCH_FAILED", "Failed to launch app: ${e.message}")
-    }
-  }
+  fun launchApp(packageName: String, promise: Promise) = appLaunchManager.launchApp(packageName, promise)
 
   private fun startPollingForInstallCompletion(packageName: String, sessionId: Int) {
     val context = reactApplicationContext
@@ -2157,7 +1213,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
               try {
                 Log.i("KioskManager", "准备启动应用: $packageName")
                 sendInstallStatusEvent("launching", packageName, "正在启动应用")
-                launchAppInternal(packageName)
+                appLaunchManager.launchAppInternal(packageName)
               } catch (e: Exception) {
                 Log.e("KioskManager", "启动应用失败: ${e.message}", e)
                 sendInstallStatusEvent("launch_failed", packageName, "启动失败: ${e.message}")
@@ -2181,7 +1237,7 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
             handler.postDelayed({
               try {
                 sendInstallStatusEvent("launching", packageName, "正在启动应用")
-                launchAppInternal(packageName)
+                appLaunchManager.launchAppInternal(packageName)
               } catch (e: Exception) {
                 Log.e("KioskManager", "最终启动尝试失败: ${e.message}", e)
                 sendInstallStatusEvent("launch_failed", packageName, "启动失败: ${e.message}")
@@ -2211,252 +1267,14 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     handler.postDelayed(checkRunnable, 1000)
   }
 
+  // 委托给 appLaunchManager
   private fun launchAppInternal(packageName: String, retryCount: Int = 0) {
-    try {
-      val context = reactApplicationContext
-      val packageManager = context.packageManager
-      val maxRetries = 20 // 最多重试20次
-      val retryDelay = if (retryCount < 5) 1000L else 2000L // 前5次1秒，之后2秒
-      
-      Log.i("KioskManager", "尝试启动应用: $packageName (重试次数: $retryCount)")
-      
-      // 检测应用是否已安装 - 使用 getApplicationInfo 和 shell 命令
-      var isInstalled = false
-      var mainActivity: String? = null
-      try {
-        val appInfo = packageManager.getApplicationInfo(packageName, 0)
-        isInstalled = true
-        Log.i("KioskManager", "✓ 检测到应用已安装: $packageName")
-        
-        // 尝试获取主 Activity
-        try {
-          val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-          if (launchIntent != null && launchIntent.component != null) {
-            val component = launchIntent.component!!
-            // am start 命令格式: packageName/.ActivityName 或 packageName/ActivityName
-            // component.className 是完整类名，需要提取短名称
-            val className = component.className
-            val shortName = if (className.startsWith(packageName)) {
-              className.substring(packageName.length + 1) // 去掉包名和点
-            } else {
-              className.substringAfterLast('.') // 如果格式不同，取最后一段
-            }
-            mainActivity = "${component.packageName}/.$shortName"
-            Log.i("KioskManager", "✓ 获取到主 Activity: $mainActivity (完整类名: $className)")
-          }
-        } catch (e: Exception) {
-          Log.w("KioskManager", "无法获取主 Activity: ${e.message}")
-        }
-      } catch (e: PackageManager.NameNotFoundException) {
-        // 如果 PackageManager API 找不到，尝试使用 shell 命令
-        try {
-          val process = Runtime.getRuntime().exec("pm list packages")
-          val reader = BufferedReader(InputStreamReader(process.inputStream))
-          var line: String?
-          
-          while (reader.readLine().also { line = it } != null) {
-            if (line!!.trim().equals("package:$packageName", ignoreCase = true)) {
-              isInstalled = true
-              Log.i("KioskManager", "✓ 通过 pm list packages 检测到应用已安装: $packageName")
-              break
-            }
-          }
-          
-          reader.close()
-          process.waitFor()
-          
-          if (!isInstalled) {
-            Log.w("KioskManager", "✗ 应用未找到: $packageName")
-          } else {
-            // 如果通过 shell 检测到应用，尝试通过 shell 获取主 Activity
-            try {
-              val process2 = Runtime.getRuntime().exec("pm dump $packageName | grep -A 5 'MAIN'")
-              val reader2 = BufferedReader(InputStreamReader(process2.inputStream))
-              var line2: String?
-              while (reader2.readLine().also { line2 = it } != null) {
-                val lineStr = line2 ?: ""
-                if (lineStr.contains("android.intent.action.MAIN") && lineStr.contains(packageName)) {
-                  // 提取 Activity 名称
-                  val activityMatch = Regex("""$packageName[/.]([^\s]+)""").find(lineStr)
-                  if (activityMatch != null) {
-                    mainActivity = "${packageName}/${activityMatch.groupValues[1]}"
-                    Log.i("KioskManager", "✓ 通过 shell 获取到主 Activity: $mainActivity")
-                    break
-                  }
-                }
-              }
-              reader2.close()
-              process2.waitFor()
-            } catch (e2: Exception) {
-              Log.w("KioskManager", "无法通过 shell 获取主 Activity: ${e2.message}")
-            }
-          }
-        } catch (e2: Exception) {
-          Log.w("KioskManager", "✗ 应用未找到: $packageName")
-        }
-      } catch (e: Exception) {
-        Log.w("KioskManager", "检查应用安装状态时出现异常: ${e.message}")
-      }
-      
-      // 如果应用未安装且还有重试次数，延迟后重试
-      if (!isInstalled && retryCount < maxRetries) {
-        Log.w("KioskManager", "应用未找到，${retryDelay}ms 后重试 (${retryCount + 1}/$maxRetries): $packageName")
-        Handler(Looper.getMainLooper()).postDelayed({
-          launchAppInternal(packageName, retryCount + 1)
-        }, retryDelay)
-        return
-      }
-      
-      // 如果重试次数用完还是找不到，报告错误
-      if (!isInstalled) {
-        Log.e("KioskManager", "应用未找到，已达到最大重试次数 ($maxRetries): $packageName")
-        sendInstallStatusEvent("launch_failed", packageName, "应用未找到，可能安装失败")
-        return
-      }
-      
-      // 检查是否为 Device Owner
-      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-      val isDeviceOwner = dpm.isDeviceOwnerApp(context.packageName)
-      
-      // 方式1: 使用标准 Intent 启动（优先尝试）
-      var launchSuccess = false
-      try {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        if (launchIntent != null) {
-          launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-          launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-          launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-          launchIntent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-          
-          context.startActivity(launchIntent)
-          launchSuccess = true
-          Log.i("KioskManager", "✓ 使用标准 Intent 启动成功")
-        }
-      } catch (e: Exception) {
-        Log.w("KioskManager", "标准 Intent 启动失败: ${e.message}")
-      }
-      
-      // 方式2: 如果标准方式失败且是 Device Owner，使用 shell 命令启动（更可靠）
-      if (!launchSuccess && isDeviceOwner) {
-        try {
-          Log.i("KioskManager", "尝试使用 shell 命令启动应用")
-          
-          // 如果已知主 Activity，直接启动
-          if (mainActivity != null) {
-            val command = "am start -n $mainActivity -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
-            Log.i("KioskManager", "执行命令: $command")
-            val process = Runtime.getRuntime().exec(command)
-            val exitCode = process.waitFor()
-            if (exitCode == 0) {
-              launchSuccess = true
-              Log.i("KioskManager", "✓ 使用 shell 命令启动成功 (主 Activity)")
-            } else {
-              val errorReader = BufferedReader(InputStreamReader(process.errorStream))
-              val error = errorReader.readText()
-              Log.w("KioskManager", "Shell 命令启动失败 (exitCode=$exitCode): $error")
-            }
-          } else {
-            // 如果不知道主 Activity，使用包名启动
-            val command = "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $packageName/.MainActivity"
-            Log.i("KioskManager", "执行命令: $command")
-            val process = Runtime.getRuntime().exec(command)
-            var exitCode = process.waitFor()
-            
-            if (exitCode != 0) {
-              // 尝试其他常见的主 Activity 名称
-              val commonActivities = listOf("MainActivity", "SplashActivity", "LauncherActivity", "Main")
-              for (activityName in commonActivities) {
-                val command2 = "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $packageName/.$activityName"
-                Log.i("KioskManager", "尝试命令: $command2")
-                val process2 = Runtime.getRuntime().exec(command2)
-                exitCode = process2.waitFor()
-                if (exitCode == 0) {
-                  launchSuccess = true
-                  Log.i("KioskManager", "✓ 使用 shell 命令启动成功 ($activityName)")
-                  break
-                }
-              }
-            } else {
-              launchSuccess = true
-              Log.i("KioskManager", "✓ 使用 shell 命令启动成功 (MainActivity)")
-            }
-            
-            if (!launchSuccess) {
-              // 最后尝试：使用包名启动（让系统自动选择 Activity）
-              val command3 = "am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $packageName"
-              Log.i("KioskManager", "执行命令: $command3")
-              val process3 = Runtime.getRuntime().exec(command3)
-              exitCode = process3.waitFor()
-              if (exitCode == 0) {
-                launchSuccess = true
-                Log.i("KioskManager", "✓ 使用 shell 命令启动成功 (自动选择)")
-              }
-            }
-          }
-        } catch (e: Exception) {
-          Log.w("KioskManager", "Shell 命令启动失败: ${e.message}")
-        }
-      }
-      
-      // 方式3: 如果前两种方式都失败，尝试使用 PackageManager 查询所有 Activity
-      if (!launchSuccess) {
-        try {
-          Log.i("KioskManager", "尝试查询所有 Activity 并启动")
-          val intent = Intent(Intent.ACTION_MAIN)
-          intent.addCategory(Intent.CATEGORY_LAUNCHER)
-          intent.setPackage(packageName)
-          
-          val activities = packageManager.queryIntentActivities(intent, 0)
-          if (activities.isNotEmpty()) {
-            val activityInfo = activities[0].activityInfo
-            val component = ComponentName(activityInfo.packageName, activityInfo.name)
-            val launchIntent = Intent(Intent.ACTION_MAIN).apply {
-              addCategory(Intent.CATEGORY_LAUNCHER)
-              setComponent(component)
-              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-              addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-              addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-              addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            }
-            context.startActivity(launchIntent)
-            launchSuccess = true
-            Log.i("KioskManager", "✓ 通过查询 Activity 启动成功: ${activityInfo.name}")
-          }
-        } catch (e: Exception) {
-          Log.w("KioskManager", "查询 Activity 启动失败: ${e.message}")
-        }
-      }
-      
-      if (launchSuccess) {
-        Log.i("KioskManager", "=== 应用启动成功 ===")
-        Log.i("KioskManager", "包名: $packageName")
-        Log.i("KioskManager", "重试次数: $retryCount")
-        Log.i("KioskManager", "是否为 Device Owner: $isDeviceOwner")
-        Log.i("KioskManager", "==================")
-        
-        // 发送启动成功事件
-        sendInstallStatusEvent("launched", packageName, "应用启动成功")
-        
-        // 清除待安装信息
-        if (pendingInstallPackageName == packageName) {
-          pendingInstallPackageName = null
-          pendingInstallSessionId = null
-          pendingInstallOldVersionCode = null
-          pendingInstallOldLastUpdateTime = null
-        }
-      } else {
-        Log.e("KioskManager", "所有启动方式都失败: $packageName")
-        sendInstallStatusEvent("launch_failed", packageName, "所有启动方式都失败")
-      }
-    } catch (e: Exception) {
-      Log.e("KioskManager", "Failed to launch app: ${e.message}", e)
-      sendInstallStatusEvent("launch_failed", packageName, "启动失败: ${e.message}")
-    }
+    appLaunchManager.launchAppInternal(packageName, retryCount)
   }
 
   override fun onCatalystInstanceDestroy() {
     super.onCatalystInstanceDestroy()
-    // 清理接收器
+    // 清理接收器和观察器
     try {
       if (installReceiver != null) {
         reactApplicationContext.unregisterReceiver(installReceiver)
@@ -2465,5 +1283,6 @@ class KioskManagerModule(private val reactContext: ReactApplicationContext) :
     } catch (e: Exception) {
       Log.e("KioskManager", "注销安装接收器失败: ${e.message}")
     }
+    systemObserver.cleanup()
   }
 }
