@@ -3,6 +3,7 @@
   <!-- 这个权限声明可以保留 -->
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.allowlist_lockTaskPackages" />
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
   
   <!-- APK 更新相关权限 -->
   <uses-permission android:name="android.permission.INTERNET" />
@@ -15,7 +16,7 @@
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
   <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
-  <application>
+  <application android:enableOnBackInvokedCallback="true">
     <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.BOOT_COMPLETED" />

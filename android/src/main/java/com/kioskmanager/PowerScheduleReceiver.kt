@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.riuhou.kioskmanager.managers.PowerScheduleManager
 
 /**
  * 定时开关机广播接收器
@@ -29,35 +30,88 @@ class PowerScheduleReceiver : BroadcastReceiver() {
   }
 
   private fun handleScheduledShutdown(context: Context) {
+    val targetContext = context.applicationContext ?: context
     try {
-      // 创建 PowerScheduleManager 实例并执行关机
-      // 注意：这里需要 ReactApplicationContext，但 BroadcastReceiver 只有 Context
-      // 所以我们需要直接使用 DevicePolicyManager
-      val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+      if (PowerScheduleManager.tryExecuteDevicePolicyShutdown(targetContext)) {
+        Log.i(TAG, "定时关机命令已执行")
+        return
+      }
+
+      Log.w(TAG, "系统 API 关机方法不可用，尝试使用其他方法")
+      // 作为设备所有者，尝试多种关机方法
+      var shutdownSuccess = false
       
-      if (dpm.isDeviceOwnerApp(context.packageName)) {
-        try {
-          // 尝试使用反射调用 reboot 方法
-          val method = dpm.javaClass.getMethod("reboot", android.content.ComponentName::class.java, String::class.java)
-          val adminComponent = android.content.ComponentName(context, DeviceAdminReceiver::class.java)
-          method.invoke(dpm, adminComponent, "shutdown")
-          Log.i(TAG, "定时关机命令已执行")
-        } catch (e: NoSuchMethodException) {
-          // 如果 reboot 方法不可用，尝试使用 shell 命令
-          Log.w(TAG, "DevicePolicyManager.reboot 方法不可用，尝试使用 shell 命令")
-          try {
-            val process = Runtime.getRuntime().exec("su -c reboot -p")
-            process.waitFor()
-            Log.i(TAG, "通过 shell 命令执行定时关机")
-          } catch (e2: Exception) {
-            Log.e(TAG, "执行定时关机失败: ${e2.message}", e2)
-          }
+      // 方法1: 直接执行 reboot -p
+      try {
+        val process = Runtime.getRuntime().exec("reboot -p")
+        val completed = process.waitFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (completed) {
+          val exitCode = process.exitValue()
+          Log.i(TAG, "通过 reboot -p 命令执行定时关机，退出码: $exitCode")
+          shutdownSuccess = true
+        } else {
+          Log.w(TAG, "reboot -p 命令超时，但可能已触发关机")
+          shutdownSuccess = true
         }
-      } else {
-        Log.e(TAG, "应用不是设备所有者，无法执行定时关机")
+      } catch (e: Exception) {
+        Log.w(TAG, "reboot -p 失败: ${e.message}")
+      }
+      
+      // 方法2: 通过 sh 执行 reboot -p
+      if (!shutdownSuccess) {
+        try {
+          val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", "reboot -p"))
+          val completed = process.waitFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+          if (completed) {
+            val exitCode = process.exitValue()
+            Log.i(TAG, "通过 sh -c reboot -p 执行定时关机，退出码: $exitCode")
+            shutdownSuccess = true
+          } else {
+            Log.w(TAG, "sh -c reboot -p 命令超时，但可能已触发关机")
+            shutdownSuccess = true
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "sh -c reboot -p 失败: ${e.message}")
+        }
+      }
+      
+      // 方法3: 尝试使用 am broadcast 发送关机广播
+      if (!shutdownSuccess) {
+        try {
+          val process = Runtime.getRuntime().exec(arrayOf("am", "broadcast", "-a", "android.intent.action.ACTION_REQUEST_SHUTDOWN"))
+          val completed = process.waitFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+          if (completed) {
+            val exitCode = process.exitValue()
+            Log.i(TAG, "通过 am broadcast 发送关机广播，退出码: $exitCode")
+            shutdownSuccess = true
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "am broadcast 发送关机广播失败: ${e.message}")
+        }
+      }
+      
+      // 方法4: 尝试使用 svc power shutdown
+      if (!shutdownSuccess) {
+        try {
+          val process = Runtime.getRuntime().exec(arrayOf("svc", "power", "shutdown"))
+          val completed = process.waitFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+          if (completed) {
+            val exitCode = process.exitValue()
+            Log.i(TAG, "通过 svc power shutdown 执行定时关机，退出码: $exitCode")
+            shutdownSuccess = true
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "svc power shutdown 失败: ${e.message}")
+        }
+      }
+      
+      if (!shutdownSuccess) {
+        Log.e(TAG, "所有关机方法都失败")
       }
     } catch (e: Exception) {
       Log.e(TAG, "处理定时关机失败: ${e.message}", e)
+    } finally {
+      PowerScheduleManager.scheduleShutdownAlarm(targetContext, triggered = true)
     }
   }
 }

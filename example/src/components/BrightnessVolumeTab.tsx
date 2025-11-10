@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Dimensions } from 'react-native';
+import { useRef, useState } from 'react';
+import { Dimensions, Text, TouchableOpacity, View } from 'react-native';
 import KioskManager from 'react-native-kiosk-manager';
-import { useAppStyles } from '../utils/styles';
 import { createSafeAlert } from '../utils/safeAlert';
-import { useRef } from 'react';
+import { useAppStyles } from '../utils/styles';
 
 interface BrightnessVolumeTabProps {
   hasWriteSettings: boolean | null;
@@ -49,7 +48,6 @@ export default function BrightnessVolumeTab(props: BrightnessVolumeTabProps) {
     mutedMap,
     globalMuted,
     ringerMode,
-    hasDndAccess,
     onHasWriteSettingsChange,
     onSystemBrightnessChange,
     onAppBrightnessChange,
@@ -58,10 +56,9 @@ export default function BrightnessVolumeTab(props: BrightnessVolumeTabProps) {
     onMutedMapChange,
     onGlobalMutedChange,
     onRingerModeChange,
-    onHasDndAccessChange,
   } = props;
 
-  const { isDarkMode, styles, colors } = useAppStyles();
+  const { styles, colors } = useAppStyles();
   const { width } = Dimensions.get('window');
   const isTablet = width >= 768;
   const [streamsOpen, setStreamsOpen] = useState(false);

@@ -1320,5 +1320,3 @@ export interface KioskManagerType {
    */
   getScheduledBoot: () => Promise<ScheduledPowerSettings | null>;
 }
-
-export type { ScheduledPowerSettings };

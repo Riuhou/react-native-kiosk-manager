@@ -1,5 +1,4 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, Dimensions, StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { DownloadedFile } from 'react-native-kiosk-manager';
 import { useAppStyles } from '../utils/styles';
 

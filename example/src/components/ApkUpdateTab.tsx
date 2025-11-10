@@ -1,6 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, TextInput, Dimensions } from 'react-native';
-import type { DownloadProgress, InstallStatus, DownloadResult } from 'react-native-kiosk-manager';
+import { Dimensions, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import type { DownloadProgress, DownloadResult, InstallStatus } from 'react-native-kiosk-manager';
 import { useAppStyles } from '../utils/styles';
 
 interface ApkUpdateTabProps {

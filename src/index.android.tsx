@@ -1,5 +1,5 @@
-import type { KioskManagerType, DownloadProgress, InstallStatus, ScheduledPowerSettings } from './KioskManager.type';
 import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import type { DownloadProgress, InstallStatus, KioskManagerType } from './KioskManager.type';
 
 // 只在Android平台上导入TurboModule
 let KioskManagerTurboModule: any = null;

@@ -8,10 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.riuhou.kioskmanager.DeviceAdminReceiver
+import java.lang.reflect.InvocationTargetException
 import java.util.Calendar
 
 /**
@@ -36,6 +38,190 @@ class PowerScheduleManager(private val reactContext: ReactApplicationContext) {
     private const val KEY_BOOT_REPEAT = "boot_repeat"
     private const val ACTION_SCHEDULED_SHUTDOWN = "com.riuhou.kioskmanager.SCHEDULED_SHUTDOWN"
     private const val ACTION_SCHEDULED_BOOT = "com.riuhou.kioskmanager.SCHEDULED_BOOT"
+
+    fun tryExecuteDevicePolicyShutdown(context: Context, reason: String = "shutdown"): Boolean {
+      return try {
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        if (dpm == null) {
+          Log.e(TAG, "无法获取 DevicePolicyManager")
+          return false
+        }
+
+        if (!dpm.isDeviceOwnerApp(context.packageName)) {
+          Log.e(TAG, "应用不是设备所有者，无法执行关机")
+          return false
+        }
+
+        // 使用应用的包名来构建 ComponentName，而不是库的包名
+        // 应用的 DeviceAdminReceiver 应该在自己的包名下
+        val adminComponent = ComponentName(context.packageName, "${context.packageName}.DeviceAdminReceiver")
+        val rebootMethods = mutableListOf<java.lang.reflect.Method>()
+
+        runCatching {
+          dpm.javaClass.getMethod("reboot", ComponentName::class.java, String::class.java)
+        }.onSuccess { method ->
+          method.isAccessible = true
+          rebootMethods.add(method)
+        }
+
+        runCatching {
+          dpm.javaClass.getMethod("reboot", ComponentName::class.java)
+        }.onSuccess { method ->
+          method.isAccessible = true
+          rebootMethods.add(method)
+        }
+
+        for (method in rebootMethods) {
+          try {
+            if (method.parameterTypes.size == 2) {
+              method.invoke(dpm, adminComponent, reason)
+            } else {
+              method.invoke(dpm, adminComponent)
+            }
+            Log.i(TAG, "通过 DevicePolicyManager 执行关机成功")
+            return true
+          } catch (invokeError: InvocationTargetException) {
+            val cause = invokeError.cause ?: invokeError
+            Log.w(TAG, "DevicePolicyManager.reboot 调用失败: ${cause.message}", cause)
+          } catch (accessError: IllegalAccessException) {
+            Log.w(TAG, "无法访问 DevicePolicyManager.reboot: ${accessError.message}", accessError)
+          }
+        }
+
+        false
+      } catch (e: Exception) {
+        Log.e(TAG, "尝试通过 DevicePolicyManager 执行关机失败: ${e.message}", e)
+        false
+      }
+    }
+
+    fun hasExactAlarmPermission(context: Context): Boolean {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        return true
+      }
+
+      val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return false
+      return alarmManager.canScheduleExactAlarms()
+    }
+
+    private fun getPrefs(context: Context): SharedPreferences {
+      return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    private fun buildShutdownIntent(context: Context): Intent {
+      return Intent(ACTION_SCHEDULED_SHUTDOWN).apply {
+        setPackage(context.packageName)
+      }
+    }
+
+    private fun buildShutdownPendingIntent(context: Context, flag: Int = PendingIntent.FLAG_UPDATE_CURRENT): PendingIntent {
+      val baseFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        flag or PendingIntent.FLAG_IMMUTABLE
+      } else {
+        flag
+      }
+
+      return PendingIntent.getBroadcast(
+        context,
+        0,
+        buildShutdownIntent(context),
+        baseFlags
+      )
+    }
+
+    fun cancelShutdownAlarm(context: Context) {
+      val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+      val pendingIntent = buildShutdownPendingIntent(context)
+      alarmManager.cancel(pendingIntent)
+    }
+
+    fun scheduleShutdownAlarm(context: Context, triggered: Boolean = false) {
+      val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: run {
+        Log.e(TAG, "无法获取 AlarmManager，无法设置定时关机")
+        return
+      }
+
+      val prefs = getPrefs(context)
+      val enabled = prefs.getBoolean(KEY_SHUTDOWN_ENABLED, false)
+      if (!enabled) {
+        cancelShutdownAlarm(context)
+        return
+      }
+
+      val hour = prefs.getInt(KEY_SHUTDOWN_HOUR, 0)
+      val minute = prefs.getInt(KEY_SHUTDOWN_MINUTE, 0)
+      val repeat = prefs.getBoolean(KEY_SHUTDOWN_REPEAT, false)
+
+      if (!repeat && triggered) {
+        Log.i(TAG, "单次定时关机已触发，自动关闭定时")
+        prefs.edit().putBoolean(KEY_SHUTDOWN_ENABLED, false).apply()
+        cancelShutdownAlarm(context)
+        return
+      }
+
+      val calendar = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+
+        if (timeInMillis <= System.currentTimeMillis()) {
+          add(Calendar.DAY_OF_YEAR, 1)
+        }
+      }
+
+      val triggerAt = calendar.timeInMillis
+      val pendingIntent = buildShutdownPendingIntent(context)
+
+      // 避免重复的 PendingIntent
+      alarmManager.cancel(pendingIntent)
+
+      val canUseExact = hasExactAlarmPermission(context)
+
+      fun scheduleExact() {
+        when {
+          Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+          }
+          Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT -> {
+            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+          }
+          else -> {
+            @Suppress("DEPRECATION")
+            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+          }
+        }
+      }
+
+      fun scheduleInexact() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        } else {
+          @Suppress("DEPRECATION")
+          alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        }
+      }
+
+      try {
+        if (canUseExact) {
+          scheduleExact()
+        } else {
+          Log.w(
+            TAG,
+            "未获得精确定时权限，改用非精确定时闹钟，可能会出现延迟。如需更精准可提醒用户授予精确定时权限。"
+          )
+          scheduleInexact()
+        }
+      } catch (se: SecurityException) {
+        Log.w(TAG, "设置精确定时闹钟被拒绝，使用非精确定时方案重试", se)
+        scheduleInexact()
+      }
+
+      Log.i(
+        TAG,
+        "定时关机闹钟已设置: ${String.format("%02d:%02d", hour, minute)}, 下一次触发时间: ${calendar.time}, 重复: $repeat"
+      )
+    }
   }
 
   private val prefs: SharedPreferences
@@ -83,72 +269,7 @@ class PowerScheduleManager(private val reactContext: ReactApplicationContext) {
         apply()
       }
 
-      // 设置 AlarmManager
-      val alarmManager = reactContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-      val intent = Intent(ACTION_SCHEDULED_SHUTDOWN).apply {
-        setPackage(reactContext.packageName)
-      }
-      
-      val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-      } else {
-        PendingIntent.FLAG_UPDATE_CURRENT
-      }
-      
-      val pendingIntent = PendingIntent.getBroadcast(
-        reactContext,
-        0,
-        intent,
-        pendingIntentFlags
-      )
-
-      // 计算目标时间
-      val calendar = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, hour)
-        set(Calendar.MINUTE, minute)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-        
-        // 如果设置的时间已过，设置为明天
-        if (timeInMillis <= System.currentTimeMillis()) {
-          add(Calendar.DAY_OF_YEAR, 1)
-        }
-      }
-
-      // 设置闹钟
-      if (repeat) {
-        // 每天重复
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-          alarmManager.setRepeating(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            AlarmManager.INTERVAL_DAY,
-            pendingIntent
-          )
-        } else {
-          @Suppress("DEPRECATION")
-          alarmManager.setRepeating(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            AlarmManager.INTERVAL_DAY,
-            pendingIntent
-          )
-        }
-      } else {
-        // 单次执行
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-          alarmManager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            calendar.timeInMillis,
-            pendingIntent
-          )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-          alarmManager.setExact(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
-        } else {
-          @Suppress("DEPRECATION")
-          alarmManager.set(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
-        }
-      }
+      scheduleShutdownAlarm(reactContext)
 
       Log.i(TAG, "定时关机设置成功: ${String.format("%02d:%02d", hour, minute)}, 重复: $repeat")
       promise.resolve(true)
@@ -163,26 +284,8 @@ class PowerScheduleManager(private val reactContext: ReactApplicationContext) {
    */
   fun cancelScheduledShutdown(promise: Promise) {
     try {
-      val alarmManager = reactContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-      val intent = Intent(ACTION_SCHEDULED_SHUTDOWN).apply {
-        setPackage(reactContext.packageName)
-      }
-      
-      val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-      } else {
-        PendingIntent.FLAG_UPDATE_CURRENT
-      }
-      
-      val pendingIntent = PendingIntent.getBroadcast(
-        reactContext,
-        0,
-        intent,
-        pendingIntentFlags
-      )
+      cancelShutdownAlarm(reactContext)
 
-      alarmManager.cancel(pendingIntent)
-      
       // 清除设置
       prefs.edit().putBoolean(KEY_SHUTDOWN_ENABLED, false).apply()
 
@@ -234,29 +337,21 @@ class PowerScheduleManager(private val reactContext: ReactApplicationContext) {
         return
       }
 
-      val dpm = reactContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-      
-      // 使用 DevicePolicyManager 的 reboot 方法，传入 "shutdown" 作为原因
-      // 注意：某些设备可能不支持直接关机，只能重启
-      try {
-        // 尝试使用反射调用 reboot 方法（如果可用）
-        val method = dpm.javaClass.getMethod("reboot", ComponentName::class.java, String::class.java)
-        val adminComponent = ComponentName(reactContext, DeviceAdminReceiver::class.java)
-        method.invoke(dpm, adminComponent, "shutdown")
-        Log.i(TAG, "关机命令已执行")
+      if (tryExecuteDevicePolicyShutdown(reactContext)) {
         promise.resolve(true)
-      } catch (e: NoSuchMethodException) {
-        // 如果 reboot 方法不可用，尝试使用 shell 命令
-        Log.w(TAG, "DevicePolicyManager.reboot 方法不可用，尝试使用 shell 命令")
-        try {
-          val process = Runtime.getRuntime().exec("su -c reboot -p")
-          process.waitFor()
-          Log.i(TAG, "通过 shell 命令执行关机")
-          promise.resolve(true)
-        } catch (e2: Exception) {
-          Log.e(TAG, "执行关机失败: ${e2.message}", e2)
-          promise.reject("E_SHUTDOWN_FAILED", "执行关机失败: ${e2.message}")
-        }
+        return
+      }
+
+      // 如果 DevicePolicyManager 接口不可用，尝试使用 shell 命令
+      Log.w(TAG, "DevicePolicyManager reboot 接口不可用，尝试使用 shell 命令")
+      try {
+        val process = Runtime.getRuntime().exec("su -c reboot -p")
+        process.waitFor()
+        Log.i(TAG, "通过 shell 命令执行关机")
+        promise.resolve(true)
+      } catch (e: Exception) {
+        Log.e(TAG, "执行关机失败: ${e.message}", e)
+        promise.reject("E_SHUTDOWN_FAILED", "执行关机失败: ${e.message}")
       }
     } catch (e: Exception) {
       Log.e(TAG, "执行关机失败: ${e.message}", e)
